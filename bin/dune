@@ -1,0 +1,4 @@
+(executable
+ (public_name cadenza)
+ (name main)
+ (libraries cadenza cohttp-lwt-unix yojson lwt))
