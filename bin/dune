@@ -10,5 +10,7 @@
   ipaddr
   ipaddr.unix
   websocket-lwt-unix
-  conduit-lwt-unix)
+  cohttp
+  conduit-lwt-unix
+  conduit-lwt)
  (preprocess (pps lwt_ppx)))
