@@ -17,7 +17,6 @@ type candle = {
   high_price : float;
   low_price : float;
   close_price : float;
-  volume : int;
 }
 
 (* Event type specific to this strategy *)
@@ -26,7 +25,7 @@ type event =
   | Timer_tick_event of float
 
 (* Initialize the strategy state *)
-let initial_local_state (_config : local_config) : local_state = {
+let initial_local_state = {
   last_side = None;
 }
 
@@ -39,7 +38,6 @@ let json_to_candle (json : Yojson.Safe.t) : candle =
     high_price = json |> member "high" |> to_float;
     low_price = json |> member "low" |> to_float;
     close_price = json |> member "close" |> to_float;
-    volume = json |> member "volume" |> to_int;
   }
 
 (* Convert JSON to event *)
@@ -48,7 +46,7 @@ let json_to_event (json : Yojson.Safe.t) : event =
   Market_data_event candle
 
 (* Process the event and transform the state *)
-let on_event (state : local_state Strategy.state) (event : event) : local_state Strategy.state =
+let on_event (state : 'local_state Strategy.state) (event : event) : 'local_state Strategy.state =
   match event with
   | Market_data_event candle ->
     (* Handle candle data and determine buy/sell logic based on alternating candles *)
