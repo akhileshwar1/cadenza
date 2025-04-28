@@ -1,4 +1,14 @@
 (executable
  (public_name cadenza)
  (name main)
- (libraries cadenza cohttp-lwt-unix yojson lwt))
+ (libraries
+  cadenza
+  lwt
+  yojson
+  uri
+  lwt.unix 
+  ipaddr
+  ipaddr.unix
+  websocket-lwt-unix
+  conduit-lwt-unix)
+ (preprocess (pps lwt_ppx)))
