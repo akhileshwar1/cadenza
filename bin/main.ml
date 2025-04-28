@@ -117,42 +117,41 @@ let connect_to_data_stream (uri_string : string) (on_raw_message : raw_message_c
       )
   in
 
-  (* Establish the connection - Using Resolver_lwt.init and Resolver_lwt.resolve_uri *)
+
+  (* Establish the connection - Using Resolver_lwt.resolve_uri with Resolver_lwt_unix.system *)
   Lwt_io.printf "Attempting to connect to %s...\n" (Uri.to_string uri) >>= fun () ->
   Lwt.catch
     (fun () ->
-      (* 1. Initialize the Resolver_lwt module SYNCHRONOUSLY, providing the system service resolver from Resolver_lwt_unix *)
-      let resolver_inst = Resolver_lwt.init ~service:Resolver_lwt_unix.system_service () in
-
-      (* 2. Resolve the Uri to a Conduit.endp using the resolver instance (asynchronous) *)
+      (* 1. Resolve the Uri to a Conduit.endp using Resolver_lwt.resolve_uri and the pre-built Resolver_lwt_unix.system instance *)
       (* This function returns Conduit.endp Lwt.t *)
-      Resolver_lwt.resolve_uri ~uri resolver_inst >>= fun conduit_endp ->
+      Resolver_lwt.resolve_uri ~uri Resolver_lwt_unix.system >>= fun conduit_endp ->
 
-      (* 3. Initialize Conduit context (asynchronous) *)
+      (* 2. Initialize Conduit context (asynchronous) *)
       Conduit_lwt_unix.init () >>= fun ctx ->
 
-      (* 4. Convert the Conduit.endp to a Conduit_lwt_unix.client using ctx (asynchronous) *)
+      (* 3. Convert the Conduit.endp to a Conduit_lwt_unix.client using ctx (asynchronous) *)
       Conduit_lwt_unix.endp_to_client ~ctx conduit_endp >>= fun client ->
 
-      (* 5. Connect using Websocket_lwt_unix.connect with the client and original Uri.t (asynchronous) *)
+      (* 4. Connect using Websocket_lwt_unix.connect with the client and original Uri.t (asynchronous) *)
       Websocket_lwt_unix.connect client uri >>= fun conn ->
 
       Lwt_io.printf "WebSocket connection established.\n" >>= fun () ->
       (* Start the read loop after successful connection *)
       read_loop conn
-    )
+    )  (* This is the closing parenthesis of the try block function *)
     (fun exn ->
-      (* Handle connection errors, including potential exceptions from R.resolve_uri *)
+      (* Handle connection errors, including potential exceptions from resolution *)
       let error_msg = Printexc.to_string exn in
       Lwt_io.eprintf "Failed during connection setup: %s\n" error_msg >>= fun () ->
       Lwt.return_unit (* Return a resolved promise indicating failure *)
-    )
+    ) (* This is the closing parenthesis of the catch block function *)
+
 
 
 let () =
   (* Build config *)
   let config = {
-    Cadenza.Strategy.data_layer_uri = "ws://localhost:8765";
+    Cadenza.Strategy.data_layer_uri = "wss://localhost:8765/";
     oms_layer_uri = "http://yourorderlayer";
     symbol = "NIFTY";
     local_config = ();
