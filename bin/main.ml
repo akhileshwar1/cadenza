@@ -19,6 +19,67 @@ module R = Resolver.Make(Cohttp_lwt_unix.IO)
 (* Define the type for the callback expected by connect_to_data_stream *)
 type raw_message_callback = string -> unit Lwt.t
 
+(* Custom service lookup function to handle ws/wss explicitly *)
+let custom_service_handler name =
+  match name with
+  | "ws" ->
+    (* WebSocket over TCP - default port 80, no TLS *)
+    let svc = { Resolver.name = "ws"; port = 80; tls = false } in
+    Lwt.return (Some svc)
+  | "wss" ->
+    (* WebSocket over TLS - default port 443, TLS required *)
+    let svc = { Resolver.name = "wss"; port = 443; tls = true } in
+    Lwt.return (Some svc)
+  | _ ->
+    (* For other schemes, fall back to the system's service lookup *)
+    (* Using Resolver_lwt_unix.system_service which should be available *)
+    Resolver_lwt_unix.system_service name
+
+(* Helper function to get host from URI, defaulting to localhost *)
+let get_host uri =
+  match Uri.host uri with
+  | None -> "localhost"
+  | Some host -> (
+    match Ipaddr.of_string host with
+    | Ok ip -> Ipaddr.to_string ip
+    | Error _ -> host)
+
+(* Helper function to get port from URI, defaulting to service port *)
+let get_port service uri =
+  match Uri.port uri with None -> service.Resolver.port | Some port -> port
+
+(* Rewrite function based on system resolution (copied from resolver_lwt_unix.ml) *)
+let system_resolver service uri =
+  let open Lwt_unix in
+  let host = get_host uri in
+  let port = get_port service uri in
+  Lwt_io.printf "system_resolver: Resolving host '%s' port %d...\n" host port >>= fun () ->
+  Lwt.catch
+    (fun () ->
+      getaddrinfo host (string_of_int port) [ AI_SOCKTYPE SOCK_STREAM ]
+      >>= fun addrinfos ->
+      (* In case both IPv4 and IPv6 addresses exist, favor IPv4: *)
+      let v4, rest = List.partition (fun i -> i.ai_family = PF_INET) addrinfos in
+      match List.rev_append v4 rest with
+      | [] ->
+        Lwt_io.eprintf "system_resolver: Host resolution failed for '%s'.\n" host >>= fun () ->
+        Lwt.return (`Unknown ("name resolution failed for " ^ host))
+      | { ai_addr = ADDR_INET (addr, resolved_port); _ } :: _ ->
+        Lwt_io.printf "system_resolver: Resolved to INET address.\n" >>= fun () ->
+        (* Check if TLS is required based on the service *)
+        if service.Resolver.tls then
+          Lwt.return (`TLS (host, `TCP (Ipaddr_unix.of_inet_addr addr, resolved_port)))
+        else
+          Lwt.return (`TCP (Ipaddr_unix.of_inet_addr addr, resolved_port))
+      | { ai_addr = ADDR_UNIX file; _ } :: _ ->
+        Lwt_io.printf "system_resolver: Resolved to Unix domain socket.\n" >>= fun () ->
+        Lwt.return (`Unix_domain_socket file)
+     )
+    (fun exn ->
+      let error_msg = Printexc.to_string exn in
+      Lwt_io.eprintf "system_resolver: Exception during resolution for '%s': %s\n" host error_msg >>= fun () ->
+      Lwt.return (`Unknown ("exception during resolution for " ^ host ^ ": " ^ error_msg))
+    )
 (* The main function to connect and handle messages *)
 let connect_to_data_stream (uri_string : string) (on_raw_message : raw_message_callback) : unit Lwt.t =
   let uri = Uri.of_string uri_string in
@@ -117,23 +178,41 @@ let connect_to_data_stream (uri_string : string) (on_raw_message : raw_message_c
       )
   in
 
+  (* Initialize the random number generator for TLS *)
+  Mirage_crypto_rng_unix.use_default ();
 
-  (* Establish the connection - Using Resolver_lwt.resolve_uri with Resolver_lwt_unix.system *)
+  (* Establish the connection - Using Resolver_lwt.init with custom service and system rewrite handlers *)
   Lwt_io.printf "Attempting to connect to %s...\n" (Uri.to_string uri) >>= fun () ->
   Lwt.catch
     (fun () ->
-      (* 1. Resolve the Uri to a Conduit.endp using Resolver_lwt.resolve_uri and the pre-built Resolver_lwt_unix.system instance *)
-      (* This function returns Conduit.endp Lwt.t *)
-      Resolver_lwt.resolve_uri ~uri Resolver_lwt_unix.system >>= fun conduit_endp ->
+      Lwt_io.printl "Step 1: Starting URI resolution with custom service and system rewrite handlers..." >>= fun () ->
+      (* 1. Initialize the Resolver_lwt module SYNCHRONOUSLY, providing the custom service handler and system rewrite rule *)
+      let resolver_inst = Resolver_lwt.init
+        ~service:custom_service_handler
+        ~rewrites:[ ("", system_resolver) ] (* Provide system_resolver as the default rewrite rule *)
+        ()
+      in
 
+      (* 2. Resolve the Uri to a Conduit.endp using the resolver instance (asynchronous) *)
+      (* This function returns Conduit.endp Lwt.t *)
+      Resolver_lwt.resolve_uri ~uri resolver_inst >>= fun conduit_endp ->
+      Lwt_io.printf "Step 1: URI resolution complete. Endpoint: %s\n" (Sexplib0.Sexp.to_string_hum (Conduit.sexp_of_endp conduit_endp)) >>= fun () ->
+
+      Lwt_io.printl "Step 2: Initializing Conduit context..." >>= fun () ->
       (* 2. Initialize Conduit context (asynchronous) *)
       Conduit_lwt_unix.init () >>= fun ctx ->
+      Lwt_io.printl "Step 2: Conduit context initialized." >>= fun () ->
 
+      Lwt_io.printl "Step 3: Converting endpoint to client..." >>= fun () ->
       (* 3. Convert the Conduit.endp to a Conduit_lwt_unix.client using ctx (asynchronous) *)
       Conduit_lwt_unix.endp_to_client ~ctx conduit_endp >>= fun client ->
+      Lwt_io.printl "Step 3: Endpoint converted to client." >>= fun () ->
 
+      Lwt_io.printl "Step 4: Connecting via Websocket_lwt_unix..." >>= fun () ->
       (* 4. Connect using Websocket_lwt_unix.connect with the client and original Uri.t (asynchronous) *)
       Websocket_lwt_unix.connect client uri >>= fun conn ->
+      Lwt_io.printl "Step 4: Websocket connection initiated." >>= fun () ->
+
 
       Lwt_io.printf "WebSocket connection established.\n" >>= fun () ->
       (* Start the read loop after successful connection *)
@@ -151,7 +230,7 @@ let connect_to_data_stream (uri_string : string) (on_raw_message : raw_message_c
 let () =
   (* Build config *)
   let config = {
-    Cadenza.Strategy.data_layer_uri = "wss://localhost:8765/";
+    Cadenza.Strategy.data_layer_uri = "ws://127.0.0.1:8765/";
     oms_layer_uri = "http://yourorderlayer";
     symbol = "NIFTY";
     local_config = ();
@@ -162,7 +241,7 @@ let () =
 
   (* Your original message handler logic (synchronous, takes Yojson.Safe.t) *)
   let process_json_message (json : Yojson.Safe.t) : unit =
-    (* Printf.printf "Processing JSON: %s\n%!" (Yojson.Safe.to_string json); *)
+    Printf.printf "Processing JSON: %s\n%!" (Yojson.Safe.to_string json);
     try
       let candle = Cadenza.Alternate_strategy.json_to_candle json in
 

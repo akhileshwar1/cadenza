@@ -10,7 +10,9 @@
   ipaddr
   ipaddr.unix
   websocket-lwt-unix
+  mirage-crypto-rng-lwt
   cohttp
   conduit-lwt-unix
-  conduit-lwt)
+  conduit-lwt
+  sexplib)
  (preprocess (pps lwt_ppx)))
