@@ -12,7 +12,7 @@ type local_config = unit
 
 (* Define the candle type for this strategy *)
 type candle = {
-  timestamp : float;
+  timestamp : string;
   open_price : float;
   high_price : float;
   low_price : float;
@@ -33,7 +33,7 @@ let initial_local_state = {
 let json_to_candle (json : Yojson.Safe.t) : candle =
   let open Yojson.Safe.Util in
   {
-    timestamp = json |> member "timestamp" |> to_float;
+    timestamp = json |> member "timestamp" |> to_string;
     open_price = json |> member "open" |> to_float;
     high_price = json |> member "high" |> to_float;
     low_price = json |> member "low" |> to_float;
