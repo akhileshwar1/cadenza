@@ -19,14 +19,14 @@ type 'local_state state = {
 type ('local_config, 'local_state) t = {
   config : ('local_config, 'local_state) config;
   state : 'local_state state;
-  extract_orders : 'local_state state -> Order.t list;
+  extract_orders : 'local_state state -> Order.t list * 'local_state state;
 }
 
 (* A function to initialize a new strategy *)
 let create
   (config : ('local_config, 'local_state) config)
   (initial_local_state : 'local_state)
-  (extract_orders : 'local_state state -> Order.t list)
+  (extract_orders : 'local_state state -> Order.t list * 'local_state state)
   : ('local_config, 'local_state) t =
   let initial_state = {
     completed_orders = [];

@@ -81,9 +81,10 @@ let on_event (state : 'local_state Strategy.state) (event : event) : 'local_stat
     (* You can implement timer-based logic if needed in the future *)
     state
 
-(* Extract orders to send to OMS *)
-let extract_orders (state : 'local_state Strategy.state) : Order.t list =
-  state.pending_orders
+let extract_orders (state : 'local_state Strategy.state) : Order.t list * 'local_state Strategy.state =
+  let orders_to_extract = state.pending_orders in
+  let new_state = { state with pending_orders = [] } in (* Create a new state with pending_orders cleared *)
+  (orders_to_extract, new_state) (* Return the orders and the new state *)
 
 (* The final strategy packaged together *)
 let create (config : ('local_config, 'local_state) Strategy.config) : ('local_config, 'local_state) Strategy.t =  Strategy.create

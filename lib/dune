@@ -1,3 +1,12 @@
 (library
  (name cadenza)
- (libraries yojson))
+ (libraries yojson uri
+  lwt.unix 
+  ipaddr
+  ipaddr.unix
+  websocket-lwt-unix
+  mirage-crypto-rng-lwt
+  cohttp
+  conduit-lwt-unix
+  conduit-lwt
+  sexplib))
