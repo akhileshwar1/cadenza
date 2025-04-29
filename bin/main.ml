@@ -17,7 +17,7 @@ let send_order_to_oms (oms_uri : Uri.t) (order : Cadenza.Order.t) : unit Lwt.t =
   (* Construct the HTTP request *)
   let headers = Cohttp.Header.init_with "Content-Type" "application/json" in
   let body = Cohttp_lwt.Body.of_string order_body in
-  let meth = `POST in (* Assuming POST method for sending orders *)
+  let meth = `POST in
 
   Lwt_io.printf "Sending POST request to %s with body: %s\n" (Uri.to_string oms_uri) order_body >>= fun () ->
 
@@ -31,11 +31,9 @@ let send_order_to_oms (oms_uri : Uri.t) (order : Cadenza.Order.t) : unit Lwt.t =
 
       Lwt_io.printf "OMS Response Status: %d %s\n" status_int status_string >>= fun () ->
 
-      (* Optionally read and print the response body *)
       Cohttp_lwt.Body.to_string body >>= fun body_string ->
       Lwt_io.printf "OMS Response Body: %s\n" body_string >>= fun () ->
 
-      (* Check for success status codes (e.g., 2xx) *)
       if Cohttp.Code.is_success status_int then (
         Lwt_io.printf "Order successfully sent to OMS.\n"
       ) else (
@@ -54,36 +52,28 @@ let process_json_message
   (current_strategy_ref : (unit, Cadenza.Alternate_strategy.local_state) Cadenza.Strategy.t ref) (* Specific strategy ref type *)
   : Cadenza.Order.t list Lwt.t =
   try
-    (* Using Alternate_strategy's json_to_candle *)
     let candle = Cadenza.Alternate_strategy.json_to_candle json in
-    (* Assuming your strategy's event type has a Market_data_event constructor *)
     let event = Cadenza.Alternate_strategy.Market_data_event candle in (* Assuming Market_data_event is in Cadenza.Strategy *)
 
     let old_state = (!current_strategy_ref).state in
-    (* Using Alternate_strategy's on_event *)
     let new_state_after_event = Cadenza.Alternate_strategy.on_event old_state event in
-    (* Using Cadenza.Strategy's update_state *)
     current_strategy_ref := Cadenza.Strategy.update_state !current_strategy_ref new_state_after_event;
 
-    (* Using Alternate_strategy's extract_orders *)
     let orders, new_state_after_extraction = Cadenza.Alternate_strategy.extract_orders (!current_strategy_ref).Cadenza.Strategy.state in
-    (* Using Cadenza.Strategy's update_state *)
     current_strategy_ref := Cadenza.Strategy.update_state !current_strategy_ref new_state_after_extraction;
 
-    (* Return the extracted orders *)
     Lwt.return orders
   with
     (* Add specific error handling for your candle processing if needed *)
     | Yojson.Safe.Util.Type_error (msg, j) ->
     Lwt_io.eprintf "JSON Type Error in process_json_message: %s\nJSON: %s\n" msg (Yojson.Safe.to_string j)
-    >>= fun () -> Lwt.return [] (* Return empty list on error *)
+    >>= fun () -> Lwt.return []
     | Yojson.Json_error msg ->
     Lwt_io.eprintf "JSON Parsing Error in process_json_message: %s\nRaw Message: <<< %s >>>\n" msg (Yojson.Safe.to_string json) (* Pass the json object for context *)
-    >>= fun () -> Lwt.return [] (* Return empty list on error *)
+    >>= fun () -> Lwt.return []
     | exn ->
-    (* Catch any other unexpected errors during parsing or processing *)
     Lwt_io.eprintf "Unexpected error in process_json_message: %s\n" (Printexc.to_string exn)
-    >>= fun () -> Lwt.return [] (* Return empty list on error *)
+    >>= fun () -> Lwt.return []
 
 (* Function to create the actual message handler callback, specific to Alternate_strategy *)
 let create_message_handler
@@ -117,7 +107,7 @@ let () =
   (* Build config *)
   let config = {
     Cadenza.Strategy.data_layer_uri = "ws://127.0.0.1:8765/";
-    oms_layer_uri = "http://yourorderlayer";
+    oms_layer_uri = "http://localhost:9000/order/place";
     symbol = "NIFTY";
     local_config = ();
   } in
