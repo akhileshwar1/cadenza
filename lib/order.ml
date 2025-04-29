@@ -55,13 +55,20 @@ type t = {
   product : product_type;
   validity : validity_type;
   status : status_type option;
+  strategy_name : string;
 }
 
 (* Helper function to convert an Order.t to a Yojson.Safe.t *)
 let json_of_order (order : t) : Yojson.Safe.t =
   `Assoc [
-    ("symbol", `String order.tradingsymbol);
-    ("side", `String (match order.side with | Buy -> "BUY" | Sell -> "SELL"));
+    ("tradingsymbol", `String order.tradingsymbol);
+    ("side", `String (match order.side with | Buy -> "Buy" | Sell -> "Sell"));
+    ("validity", `String (match order.validity with | DAY -> "DAY" | IOC -> "IOC"));
+    ("product", `String (match order.product with | MIS -> "MIS" | CNC -> "CNC" | NRML -> "NRML"));
     ("quantity", `Int order.quantity);
     ("price", `Float order.price);
+    ("trigger_price", `Float 0.0);
+    ("order_type", `String "Limit");
+    ("exchange", `String order.exchange);
+    ("strategy_name", `String order.strategy_name)
   ]
