@@ -72,3 +72,24 @@ let json_of_order (order : t) : Yojson.Safe.t =
     ("exchange", `String order.exchange);
     ("strategy_name", `String order.strategy_name)
   ]
+
+let make_order
+  ~(tradingsymbol : string)
+  ~(quantity : int)
+  ~(price : float)
+  ~(side : side)
+  ~(strategy_name : string)
+  : t =
+  {
+    tradingsymbol;
+    exchange = "NSE";
+    quantity;
+    price;
+    trigger_price = 0.0;
+    side;
+    order_type = Market;
+    product = MIS;
+    validity = DAY;
+    status = Some Pending;
+    strategy_name;
+  }
