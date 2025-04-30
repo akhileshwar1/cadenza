@@ -12,6 +12,7 @@ type 'local_state state = {
   completed_orders : Order.t list;
   pending_orders : Order.t list;
   rejected_orders : Order.t list;
+  positions : Position.t list;
   local_state : 'local_state;
 }
 
@@ -32,6 +33,7 @@ let create
     completed_orders = [];
     pending_orders = [];
     rejected_orders = [];
+    positions = [];
     local_state = initial_local_state;
   } in
   {
