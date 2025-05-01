@@ -21,18 +21,18 @@ let parse_option_data json : option_data =
     ask = json |> member "ask" |> to_float;
   }
 
-let parse json : t =
+let parse (json : Yojson.Safe.t) : t =
   json
-  |> to_assoc
+  |> Yojson.Safe.Util.to_assoc
   |> List.map (fun (expiry, strikes_json) ->
     let strikes =
       strikes_json
-      |> to_assoc
+      |> Yojson.Safe.Util.to_assoc
       |> List.map (fun (strike_str, contracts_json) ->
         let strike = float_of_string strike_str in
         let contracts =
           contracts_json
-          |> to_assoc
+          |> Yojson.Safe.Util.to_assoc
           |> List.map (fun (sym, data) ->
             (sym, parse_option_data data))
         in
@@ -48,3 +48,5 @@ let get () : t Lwt.t =
   body |> Cohttp_lwt.Body.to_string >|= fun body_str ->
   let json = Yojson.Safe.from_string body_str in
   parse json
+
+
