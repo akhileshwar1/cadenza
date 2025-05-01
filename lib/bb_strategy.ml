@@ -48,6 +48,43 @@ let json_to_candle (json : Yojson.Safe.t) : candle =
     sma = json |> member "sma" |> to_float;
   }
 
+
+let generate_mock_option_chain (candle : candle) : Option_chain.t Lwt.t =
+  let spot = candle.close_price in
+  let base_strike = Float.round (spot /. 100.0) *. 100.0 in
+  let strikes = List.init 11 (fun i -> base_strike -. 500.0 +. (float_of_int (i * 100))) in
+
+  let make_option_data strike call =
+    let moneyness = abs_float (strike -. spot) in
+    let delta = if call then
+      max 0.0 (1.0 -. (moneyness /. 1000.0))
+      else
+        -. max 0.0 (1.0 -. (moneyness /. 1000.0)) in
+    let premium = max 5.0 (100.0 -. moneyness /. 2.0) in
+    let option: Option_chain.option_data = {
+      symbol = "NIFTY50"; 
+      ltp = premium;
+      bid = premium -. 0.5;
+      ask = premium +. 0.5;
+      delta = delta;
+    } in
+    option
+  in
+
+  let expiry = "2025-05-08" in
+  let options =
+    strikes
+    |> List.map (fun strike ->
+      let call = make_option_data strike true in
+      let put = make_option_data strike false in
+      (strike, [("CE", call); ("PE", put)])
+    )
+  in
+
+  let result : Option_chain.t = [(expiry, options)] in
+  Lwt.return result
+
+
 (* Convert JSON to event *)
 let json_to_event (json : Yojson.Safe.t) : event =
   let candle = json_to_candle json in
