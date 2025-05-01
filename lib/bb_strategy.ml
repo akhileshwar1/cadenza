@@ -32,7 +32,10 @@ type event =
   | Market_data_event of candle
 
 (* Initialize the strategy state *)
-let initial_local_state = () 
+let initial_local_state = {
+  last_breach = Between;
+  expiry = "2025-05-08";
+}
 
 (* Convert JSON to candle type *)
 let json_to_candle (json : Yojson.Safe.t) : candle =
@@ -49,7 +52,7 @@ let json_to_candle (json : Yojson.Safe.t) : candle =
   }
 
 
-let generate_mock_option_chain (candle : candle) : Option_chain.t Lwt.t =
+let generate_mock_option_chain candle : Option_chain.t Lwt.t =
   let spot = candle.close_price in
   let base_strike = Float.round (spot /. 100.0) *. 100.0 in
   let strikes = List.init 11 (fun i -> base_strike -. 500.0 +. (float_of_int (i * 100))) in
@@ -206,10 +209,10 @@ let generate_lower_breach_orders ~state ~option_chain ~candle ~offset : Order.t 
 (* Process the event and transform the state *)
 let on_event (state : 'local_state Strategy.state) (event : event) : 'local_state Strategy.state Lwt.t =
   (* Replace mock with actual async call to option chain *)
-  let%lwt option_chain = Option_chain.get () in
-
   match event with
   | Market_data_event candle ->
+
+    let%lwt option_chain = generate_mock_option_chain candle in
     let current_time = Unix.gettimeofday () in
 
     (* Determine current breach status *)
@@ -228,9 +231,10 @@ let on_event (state : 'local_state Strategy.state) (event : event) : 'local_stat
     let transition_orders =
       match state.local_state.last_breach, current_breach with
       | Between, Upper ->
+        Printf.printf "in upper breach! %!";
         generate_upper_breach_orders ~state ~option_chain ~candle ~offset
-
       | Between, Lower ->
+        Printf.printf "in lower breach! %!";
         generate_lower_breach_orders ~state ~option_chain ~candle ~offset
 
       | Upper, Lower ->

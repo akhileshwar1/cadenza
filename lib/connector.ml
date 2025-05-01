@@ -110,9 +110,10 @@ let connect_to_data_stream (uri_string : string) (on_raw_message : raw_message_c
 
         | Websocket.Frame.Opcode.Ping ->
           (* Server sent a Ping, respond with Pong *)
-          (* Lwt_io.printl "Received PING, sending PONG" >>= fun () -> *)
+          Lwt_io.printl "Received PING, sending PONG" >>= fun () ->
           let pong_frame = Websocket.Frame.create ~opcode:Pong () in
           Websocket_lwt_unix.write conn pong_frame >>= fun () ->
+          Lwt_io.printl "...PONG sent." >>= fun () ->
           read_loop conn (* Continue reading *)
 
         | Websocket.Frame.Opcode.Close ->
