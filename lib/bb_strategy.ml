@@ -1,4 +1,4 @@
-(* alternate_strategy.ml *)
+(* bb_strategy.ml *)
 
 open Strategy
 
@@ -10,6 +10,7 @@ type breach_status =
 (* Local state specific to AlternateStrategy *)
 type local_state = {
   last_breach : breach_status;
+  expiry : string;
 } 
 
 (* Config specific to AlternateStrategy *)
@@ -26,14 +27,6 @@ type candle = {
   lower_band : float;
   sma : float;
 }
-
-type option_data = {
-  symbol : string;
-  premium : float;
-  delta : float;
-}
-
-type option_chain = (string * (float * (string * option_data) list) list) list
 
 (* Event type specific to this strategy *)
 type event =
@@ -96,11 +89,10 @@ let generate_close_orders_for_position (pos : Position.t) : Order.t list =
 
 let expired_close_orders (positions : Position.t list) (current_time : float) : Order.t list =
   positions
-  |> List.filter (fun pos ->
-         pos.status = Open && (current_time -. pos.opened_at_epoch) >= 600.0)
+  |> List.filter (fun (pos : Position.t) -> pos.status = Open && (current_time -. pos.opened_at_epoch) >= 600.0)
   |> List.concat_map generate_close_orders_for_position
 
-let find_nearest_strike (target : float) (option_chain : option_chain) : float =
+let find_nearest_strike (target : float) (option_chain : Option_chain.t) : float =
   let all_strikes =
     option_chain
     |> List.hd |> snd (* pick any expiry, doesn't matter *)
@@ -110,17 +102,12 @@ let find_nearest_strike (target : float) (option_chain : option_chain) : float =
     if abs_float (strike -. target) < abs_float (acc -. target) then strike else acc
   ) (List.hd all_strikes) all_strikes
 
-let get_option_data (option_chain : option_chain) (expiry : string) (strike : float) (otype : string) : option_data =
+let get_option_data (option_chain : Option_chain.t) (expiry : string) (strike : float) (otype : string) : Option_chain.option_data =
   match List.assoc_opt expiry option_chain with
   | Some strike_map ->
     (match List.assoc_opt strike strike_map with
       | Some data_map ->
-        let data = List.assoc otype data_map in
-        {
-          symbol = data.symbol;
-          premium = data.ltp;
-          delta = data.delta;
-        }
+        List.assoc otype data_map
       | None -> failwith "Strike not found")
   | None -> failwith "Expiry not found"
 
@@ -135,7 +122,7 @@ let get_offset_from_day (epoch_time : float) : float =
   | _ -> 0.0
 
 let generate_upper_breach_orders ~state ~option_chain ~candle ~offset : Order.t list =
-  let expiry = state.expiry in
+  let expiry = state.local_state.expiry in
   let current_price = candle.close_price in
 
   let call_strike = find_nearest_strike (current_price +. offset) option_chain in
@@ -150,16 +137,15 @@ let generate_upper_breach_orders ~state ~option_chain ~candle ~offset : Order.t 
   let put_qty = int_of_float (ceil (0.5 *. call_delta_exposure /. put_delta)) in
 
   let call_order =
-    Order.make_order ~symbol:call_data.symbol ~qty:call_qty ~price:call_data.premium ~side:Order.Sell ~strategy_name:"bb"
+    Order.make_order ~tradingsymbol:call_data.symbol ~quantity:call_qty ~price:call_data.ltp ~side:Order.Sell ~strategy_name:"bb"
   in
   let put_order =
-    
-    Order.make_order ~symbol:put_data.symbol ~qty:put_qty ~price:put_data.premium ~side:Order.Sell ~strategy_name:"bb"
+    Order.make_order ~tradingsymbol:put_data.symbol ~quantity:put_qty ~price:put_data.ltp ~side:Order.Sell ~strategy_name:"bb"
   in
   [call_order; put_order]
 
 let generate_lower_breach_orders ~state ~option_chain ~candle ~offset : Order.t list =
-  let expiry = state.expiry in
+  let expiry = state.local_state.expiry in
   let current_price = candle.close_price in
 
   let put_strike = find_nearest_strike (current_price -. offset) option_chain in
@@ -174,10 +160,10 @@ let generate_lower_breach_orders ~state ~option_chain ~candle ~offset : Order.t 
   let call_qty = int_of_float (ceil (0.5 *. put_delta_exposure /. call_delta)) in
 
   let put_order =
-    Order.make_order ~symbol:put_data.symbol ~qty:put_qty ~price:put_data.premium ~side:Order.Sell ~strategy_name:"bb"
+    Order.make_order ~tradingsymbol:put_data.symbol ~quantity:put_qty ~price:put_data.ltp ~side:Order.Sell ~strategy_name:"bb"
   in
   let call_order =
-    Order.make_order ~symbol:call_data.symbol ~qty:call_qty ~price:call_data.premium ~side:Order.Sell ~strategy_name:"bb"
+    Order.make_order ~tradingsymbol:call_data.symbol ~quantity:call_qty ~price:call_data.ltp ~side:Order.Sell ~strategy_name:"bb"
   in
   [put_order; call_order]
 
@@ -188,44 +174,47 @@ let on_event (state : 'local_state Strategy.state) (event : event) : 'local_stat
 
   match event with
   | Market_data_event candle ->
-      let current_time = Unix.gettimeofday () in
+    let current_time = Unix.gettimeofday () in
 
-      (* Determine current breach status *)
-      let current_breach =
-        if candle.close_price > candle.upper_band then Upper
-        else if candle.close_price < candle.lower_band then Lower
-        else Between
-      in
-      let current_time = Unix.gettimeofday () in
-      let offset = get_offset_from_day current_time in
-      (* Close positions if 10 minutes have passed *)
-      let expired_close_orders = expired_close_orders state.positions current_time in
-      (* Orders based on breach transitions *)
-      let transition_orders =
-        match state.local_state.last_breach, current_breach with
-        | Between, Upper ->
-            generate_upper_breach_orders ~state ~option_chain ~candle
-        | Between, Lower ->
-            generate_lower_breach_orders ~state ~option_chain ~candle
-        | Upper, Lower ->
+    (* Determine current breach status *)
+    let current_breach =
+      if candle.close_price > candle.upper_band then Upper
+      else if candle.close_price < candle.lower_band then Lower
+      else Between
+    in
+    let offset = get_offset_from_day current_time in
+    (* Close positions if 10 minutes have passed *)
+    let expired_close_orders = expired_close_orders state.positions current_time in
+    (* Orders based on breach transitions *)
+    let transition_orders =
+      match state.local_state.last_breach, current_breach with
+      | Between, Upper ->
+        generate_upper_breach_orders ~state ~option_chain ~candle ~offset
+      | Between, Lower ->
+        generate_lower_breach_orders ~state ~option_chain ~candle ~offset
+      | Upper, Lower ->
         let close =
           state.positions
           |> List.concat_map generate_close_orders_for_position in
-         let open_ = generate_lower_breach_orders ~state ~option_chain ~candle ~offset in
-            close @ open_
-        | Lower, Upper ->
+        let open_ = (generate_lower_breach_orders ~state ~option_chain ~candle ~offset) in
+        close @ open_
+      | Lower, Upper ->
         let close =
           state.positions
           |> List.concat_map generate_close_orders_for_position in
-            let open_ = generate_upper_breach_orders ~state ~option_chain ~candle ~offset in
-            close @ open_
-        | _, Between | Between, Between -> []
-        | Upper, Upper
+        let open_ = (generate_upper_breach_orders ~state ~option_chain ~candle ~offset) in
+        close @ open_
+
+      | Between, Between -> []
+      | _, Between -> []
+      | Upper, Upper
         | Lower, Lower -> []  (* Continue in same breach — no new action *)
-      in
+    in
 
-      let all_orders = expired_close_orders @ transition_orders in
-      Strategy.update_state_with_orders state ~orders:all_orders ~breach_status:current_breach ~timestamp:candle.timestamp
+    let all_orders = expired_close_orders @ transition_orders @ state.pending_orders in
+    let new_local_state = { state.local_state with last_breach = current_breach } in
+    let new_state = { state with pending_orders = all_orders; local_state = new_local_state} in
+    new_state
 
 let extract_orders (state : 'local_state Strategy.state) : Order.t list * 'local_state Strategy.state =
   let orders_to_extract = state.pending_orders in
@@ -234,6 +223,6 @@ let extract_orders (state : 'local_state Strategy.state) : Order.t list * 'local
 
 (* The final strategy packaged together *)
 let create (config : ('local_config, 'local_state) Strategy.config) : ('local_config, 'local_state) Strategy.t =  Strategy.create
-    config
-    initial_local_state
-    extract_orders
+  config
+  initial_local_state
+  extract_orders
