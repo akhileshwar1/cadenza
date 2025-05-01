@@ -1,5 +1,4 @@
 (* bb_strategy.ml *)
-
 open Strategy
 
 type breach_status = 
@@ -168,9 +167,9 @@ let generate_lower_breach_orders ~state ~option_chain ~candle ~offset : Order.t 
   [put_order; call_order]
 
 (* Process the event and transform the state *)
-let on_event (state : 'local_state Strategy.state) (event : event) : 'local_state Strategy.state =
-  (* Mocked option chain — replace with actual call in production *)
-  let option_chain = MockOptionChain.get () in
+let on_event (state : 'local_state Strategy.state) (event : event) : 'local_state Strategy.state Lwt.t =
+  (* Replace mock with actual async call to option chain *)
+  let%lwt option_chain = Option_chain.get () in
 
   match event with
   | Market_data_event candle ->
@@ -182,39 +181,46 @@ let on_event (state : 'local_state Strategy.state) (event : event) : 'local_stat
       else if candle.close_price < candle.lower_band then Lower
       else Between
     in
+
     let offset = get_offset_from_day current_time in
+
     (* Close positions if 10 minutes have passed *)
     let expired_close_orders = expired_close_orders state.positions current_time in
+
     (* Orders based on breach transitions *)
     let transition_orders =
       match state.local_state.last_breach, current_breach with
       | Between, Upper ->
         generate_upper_breach_orders ~state ~option_chain ~candle ~offset
+
       | Between, Lower ->
         generate_lower_breach_orders ~state ~option_chain ~candle ~offset
+
       | Upper, Lower ->
         let close =
           state.positions
           |> List.concat_map generate_close_orders_for_position in
-        let open_ = (generate_lower_breach_orders ~state ~option_chain ~candle ~offset) in
+        let open_ = generate_lower_breach_orders ~state ~option_chain ~candle ~offset in
         close @ open_
+
       | Lower, Upper ->
         let close =
           state.positions
           |> List.concat_map generate_close_orders_for_position in
-        let open_ = (generate_upper_breach_orders ~state ~option_chain ~candle ~offset) in
+        let open_ = generate_upper_breach_orders ~state ~option_chain ~candle ~offset in
         close @ open_
 
-      | Between, Between -> []
-      | _, Between -> []
-      | Upper, Upper
-        | Lower, Lower -> []  (* Continue in same breach — no new action *)
+      | Between, Between
+        | _, Between
+        | Upper, Upper
+        | Lower, Lower -> []
     in
 
     let all_orders = expired_close_orders @ transition_orders @ state.pending_orders in
     let new_local_state = { state.local_state with last_breach = current_breach } in
-    let new_state = { state with pending_orders = all_orders; local_state = new_local_state} in
-    new_state
+    let new_state = { state with pending_orders = all_orders; local_state = new_local_state } in
+
+    Lwt.return new_state
 
 let extract_orders (state : 'local_state Strategy.state) : Order.t list * 'local_state Strategy.state =
   let orders_to_extract = state.pending_orders in

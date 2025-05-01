@@ -9,4 +9,5 @@
   cohttp
   conduit-lwt-unix
   conduit-lwt
-  sexplib))
+  sexplib)
+ (preprocess (pps lwt_ppx)))

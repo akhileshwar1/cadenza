@@ -1,4 +1,4 @@
-open Cohttp
+open Lwt.Infix
 open Cohttp_lwt_unix
 open Yojson.Safe.Util
 
@@ -25,22 +25,22 @@ let parse json : t =
   json
   |> to_assoc
   |> List.map (fun (expiry, strikes_json) ->
-      let strikes =
-        strikes_json
-        |> to_assoc
-        |> List.map (fun (strike_str, contracts_json) ->
-            let strike = float_of_string strike_str in
-            let contracts =
-              contracts_json
-              |> to_assoc
-              |> List.map (fun (sym, data) ->
-                  (sym, parse_option_data data))
-            in
-            (strike, contracts)
-          )
-      in
-      (expiry, strikes)
-    )
+    let strikes =
+      strikes_json
+      |> to_assoc
+      |> List.map (fun (strike_str, contracts_json) ->
+        let strike = float_of_string strike_str in
+        let contracts =
+          contracts_json
+          |> to_assoc
+          |> List.map (fun (sym, data) ->
+            (sym, parse_option_data data))
+        in
+        (strike, contracts)
+      )
+    in
+    (expiry, strikes)
+  )
 
 let get () : t Lwt.t =
   let uri = Uri.of_string "http://localhost:8000/option-chain" in
