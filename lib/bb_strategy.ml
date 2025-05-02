@@ -1,5 +1,6 @@
 (* bb_strategy.ml *)
 open Strategy
+open Unix
 
 type breach_status = 
   | Upper
@@ -34,7 +35,7 @@ type event =
 (* Initialize the strategy state *)
 let initial_local_state = {
   last_breach = Between;
-  expiry = "2025-05-08";
+  expiry = "08-05-2025";
 }
 
 (* Convert JSON to candle type *)
@@ -70,6 +71,7 @@ let generate_mock_option_chain candle : Option_chain.t Lwt.t =
       bid = premium -. 0.5;
       ask = premium +. 0.5;
       delta = delta;
+      strike = "";
     } in
     option
   in
@@ -150,19 +152,48 @@ let get_option_data (option_chain : Option_chain.t) (expiry : string) (strike : 
       | None -> failwith "Strike not found")
   | None -> failwith "Expiry not found"
 
+(* expiry like 08-05-2025 to unix epoch time *)
+let expiry_to_epoch (date_str : string) : float =
+  let day = int_of_string (String.sub date_str 0 2) in
+  let month = int_of_string (String.sub date_str 3 2) in
+  let year = int_of_string (String.sub date_str 6 4) in
+  let tm = {
+    Unix.tm_sec = 0;
+    tm_min = 0;
+    tm_hour = 0;
+    tm_mday = day;
+    tm_mon = month - 1;  (* months are 0-indexed *)
+    tm_year = year - 1900;  (* years since 1900 *)
+    tm_wday = 0;
+    tm_yday = 0;
+    tm_isdst = false;
+  } in
+  fst (Unix.mktime tm)
 
-let get_offset_from_day (epoch_time : float) : float =
-  let tm = Unix.localtime epoch_time in
-  match tm.tm_wday with
-  | 1 -> 200.0 
-  | 2 -> 150.0
-  | 3 -> 100.0
-  | 4 -> 50.0
+let is_weekend tm =
+  tm.tm_wday = 0 || tm.tm_wday = 6  (* Sunday or Saturday *)
+
+let rec count_trading_days from_time to_time =
+  if from_time > to_time then 0
+  else
+    let tm = Unix.localtime from_time in
+    let next_day = from_time +. 86400.0 in (* add 1 day in seconds *)
+    let rest = count_trading_days next_day to_time in
+    if is_weekend tm then rest else 1 + rest
+
+let get_offset_from_day (today : float) (expiry : float) : float =
+  let trading_days = count_trading_days today (expiry -. 86400.0) in
+  match trading_days with
+  | 4 -> 200.0
+  | 3 -> 150.0
+  | 2 -> 100.0
+  | 1 -> 50.0
   | _ -> 0.0
 
 let generate_upper_breach_orders ~state ~option_chain ~candle ~offset : Order.t list =
   let expiry = state.local_state.expiry in
   let current_price = candle.close_price in
+  Printf.printf "current price is %f and offset %f\n%!" current_price offset;
 
   let call_strike = find_nearest_strike (current_price +. offset) option_chain in
   let call_data = get_option_data option_chain expiry call_strike "CE" in
@@ -174,12 +205,14 @@ let generate_upper_breach_orders ~state ~option_chain ~candle ~offset : Order.t 
   let put_data = get_option_data option_chain expiry put_strike "PE" in
   let put_delta = abs_float put_data.delta in
   let put_qty = int_of_float (ceil (0.5 *. call_delta_exposure /. put_delta)) in
+  let call_trading_symbol = "NIFTY08MAY" ^ call_data.strike in
+  let put_trading_symbol = "NIFTY08MAY" ^ put_data.strike in
 
   let call_order =
-    Order.make_order ~tradingsymbol:call_data.symbol ~quantity:call_qty ~price:call_data.ltp ~side:Order.Sell ~strategy_name:"bb"
+    Order.make_order ~tradingsymbol:call_trading_symbol ~quantity:call_qty ~price:call_data.ltp ~side:Order.Sell ~strategy_name:"bb"
   in
   let put_order =
-    Order.make_order ~tradingsymbol:put_data.symbol ~quantity:put_qty ~price:put_data.ltp ~side:Order.Sell ~strategy_name:"bb"
+    Order.make_order ~tradingsymbol:put_trading_symbol ~quantity:put_qty ~price:put_data.ltp ~side:Order.Sell ~strategy_name:"bb"
   in
   [call_order; put_order]
 
@@ -197,12 +230,15 @@ let generate_lower_breach_orders ~state ~option_chain ~candle ~offset : Order.t 
   let call_data = get_option_data option_chain expiry call_strike "CE" in
   let call_delta = abs_float call_data.delta in
   let call_qty = int_of_float (ceil (0.5 *. put_delta_exposure /. call_delta)) in
+  let call_trading_symbol = "NIFTY08MAY" ^ call_data.strike in
+  let put_trading_symbol = "NIFTY08MAY" ^ put_data.strike in
+
 
   let put_order =
-    Order.make_order ~tradingsymbol:put_data.symbol ~quantity:put_qty ~price:put_data.ltp ~side:Order.Sell ~strategy_name:"bb"
+    Order.make_order ~tradingsymbol:put_trading_symbol ~quantity:put_qty ~price:put_data.ltp ~side:Order.Sell ~strategy_name:"bb"
   in
   let call_order =
-    Order.make_order ~tradingsymbol:call_data.symbol ~quantity:call_qty ~price:call_data.ltp ~side:Order.Sell ~strategy_name:"bb"
+    Order.make_order ~tradingsymbol:call_trading_symbol ~quantity:call_qty ~price:call_data.ltp ~side:Order.Sell ~strategy_name:"bb"
   in
   [put_order; call_order]
 
@@ -212,7 +248,7 @@ let on_event (state : 'local_state Strategy.state) (event : event) : 'local_stat
   match event with
   | Market_data_event candle ->
 
-    let%lwt option_chain = generate_mock_option_chain candle in
+    let%lwt option_chain = Option_chain.get () in
     let current_time = Unix.gettimeofday () in
 
     (* Determine current breach status *)
@@ -221,8 +257,9 @@ let on_event (state : 'local_state Strategy.state) (event : event) : 'local_stat
       else if candle.close_price < candle.lower_band then Lower
       else Between
     in
-
-    let offset = get_offset_from_day current_time in
+    let expiry = state.local_state.expiry in
+    let expiry_epoch = expiry_to_epoch expiry in
+    let offset = get_offset_from_day current_time expiry_epoch in
 
     (* Close positions if 10 minutes have passed *)
     let expired_close_orders = expired_close_orders state.positions current_time in
@@ -254,7 +291,7 @@ let on_event (state : 'local_state Strategy.state) (event : event) : 'local_stat
       | Between, Between
         | _, Between
         | Upper, Upper
-        | Lower, Lower -> []
+        | Lower, Lower -> generate_upper_breach_orders ~state ~option_chain ~candle ~offset
     in
 
     let all_orders = expired_close_orders @ transition_orders @ state.pending_orders in

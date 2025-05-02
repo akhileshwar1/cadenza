@@ -106,7 +106,7 @@ let create_message_handler
 let () =
   (* Build config *)
   let config = {
-    Cadenza.Strategy.data_layer_uri = "ws://127.0.0.1:8765/";
+    Cadenza.Strategy.data_layer_uri = "ws://127.0.0.1:8000/candles/stream";
     oms_layer_uri = "http://localhost:9000/order/place";
     symbol = "NIFTY";
     local_config = ();
