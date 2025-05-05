@@ -103,11 +103,134 @@ let create_message_handler
       )
   )
 
+let update_or_insert_position (positions : Cadenza.Position.t list) (order : Cadenza.Order.t) : Cadenza.Position.t list =
+  let symbol = order.tradingsymbol in
+  let qty = order.quantity in
+  let price = order.price in
+  let side = order.side in
+  let now = Unix.gettimeofday () in
+  let open Cadenza.Position in
+
+  let rec update_positions acc = function
+    | [] ->
+      let new_position =
+        match side with
+        | Buy ->
+          {
+            opened_at_epoch = now;
+            closed_at_epoch = 0.0;
+            symbol;
+            net_buy_qty = qty;
+            net_sell_qty = 0;
+            net_buy_price = price;
+            net_sell_price = 0.0;
+            current_ask_price = 0.0;
+            current_bid_price = 0.0;
+            side = Buy;
+            value = float_of_int qty *. price;
+            status = Open;
+          }
+        | Sell ->
+          {
+            opened_at_epoch = now;
+            closed_at_epoch = 0.0;
+            symbol;
+            net_buy_qty = 0;
+            net_sell_qty = qty;
+            net_buy_price = 0.0;
+            net_sell_price = price;
+            current_ask_price = 0.0;
+            current_bid_price = 0.0;
+            side = Sell;
+            value = float_of_int qty *. price;
+            status = Open;
+          }
+      in
+      List.rev (new_position :: acc)
+
+    | pos :: rest when pos.symbol = symbol ->
+      let updated_pos =
+        match side with
+        | Buy ->
+          let total_qty = pos.net_buy_qty + qty in
+          let total_cost = (float_of_int pos.net_buy_qty *. pos.net_buy_price) +. (float_of_int qty *. price) in
+          let new_buy_price = total_cost /. float_of_int total_qty in
+          { pos with
+            net_buy_qty = total_qty;
+            net_buy_price = new_buy_price;
+            value = float_of_int total_qty *. new_buy_price;
+          }
+        | Sell ->
+          let total_qty = pos.net_sell_qty + qty in
+          let total_cost = (float_of_int pos.net_sell_qty *. pos.net_sell_price) +. (float_of_int qty *. price) in
+          let new_sell_price = total_cost /. float_of_int total_qty in
+          { pos with
+            net_sell_qty = total_qty;
+            net_sell_price = new_sell_price;
+            value = float_of_int total_qty *. new_sell_price;
+          }
+      in
+
+      let updated_pos =
+        if updated_pos.net_buy_qty = updated_pos.net_sell_qty && updated_pos.net_buy_qty > 0 then
+          { updated_pos with status = Closed; closed_at_epoch = now }
+        else
+          updated_pos
+      in
+
+      List.rev_append acc (updated_pos :: rest)
+
+    | pos :: rest ->
+      update_positions (pos :: acc) rest
+  in
+
+  update_positions [] positions
+
+let process_order_update
+  (json : Yojson.Safe.t)
+  (strategy_ref : ('a, 'b) Cadenza.Strategy.t ref)
+  : unit Lwt.t =
+  try
+    match Cadenza.Order.of_yojson json with
+    | order ->
+      if order.status <> Some Cadenza.Order.Completed then
+        Lwt.return_unit  (* Skip non-completed orders *)
+      else
+        let state = (!strategy_ref).state in
+        let updated_positions = update_or_insert_position state.positions order in
+        let updated_state = { state with positions = updated_positions } in
+        strategy_ref := Cadenza.Strategy.update_state !strategy_ref updated_state;
+        Lwt.return_unit
+  with
+    | exn ->
+    Lwt_io.eprintf "Exception in process_order_update: %s\n" (Printexc.to_string exn)
+
+let create_order_update_handler
+  (current_strategy_ref : (unit, Cadenza.Bb_strategy.local_state) Cadenza.Strategy.t ref) (* Specific strategy ref type *)
+  : raw_message_callback =
+  (* This is the function that will be passed to Websocket_lwt_unix.connect *)
+  (fun message_string ->
+    Lwt.catch
+      (fun () ->
+        (* Parse the raw message string as JSON *)
+        let json = Yojson.Safe.from_string message_string in
+
+        (* Process the JSON message using the specific strategy functions and get orders *)
+        process_order_update json current_strategy_ref 
+      )
+      (fun exn ->
+        let error_msg = Printexc.to_string exn in
+        Lwt_io.eprintf "Error in message handler: %s\n" error_msg >>= fun () ->
+        Lwt.return_unit (* Continue processing other messages *)
+      )
+  )
+
 let () =
   (* Build config *)
   let config = {
     Cadenza.Strategy.data_layer_uri = "ws://127.0.0.1:8000/candles/stream";
     oms_layer_uri = "http://localhost:9000/order/place";
+    oms_ws_uri = "ws://localhost:8081/";
     symbol = "NIFTY";
     local_config = ();
   } in
@@ -124,7 +247,27 @@ let () =
       current_strategy (* Pass the specific strategy ref *)
   in
 
+  let order_update_handler = 
+    create_order_update_handler
+      current_strategy
+  in
+
   let login_msg = Yojson.Safe.to_string (`Assoc []) in
   let heartbeat_msg = Yojson.Safe.to_string (`Assoc []) in
+  let market_data_promise =
+    connect_to_data_stream
+      config.data_layer_uri
+      message_handler 
+      login_msg
+      heartbeat_msg
+  in
 
-  Lwt_main.run (connect_to_data_stream config.data_layer_uri message_handler login_msg heartbeat_msg)
+  let oms_update_promise =
+    connect_to_data_stream
+      config.oms_ws_uri
+      order_update_handler
+      login_msg
+      heartbeat_msg
+  in
+
+  Lwt_main.run (Lwt.join [market_data_promise; oms_update_promise])

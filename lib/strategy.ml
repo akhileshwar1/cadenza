@@ -5,6 +5,7 @@ type ('local_config, 'local_state) config = {
   oms_layer_uri : string;
   symbol : string;
   local_config : 'local_config;
+  oms_ws_uri : string;
 }
 
 (* Define the type for the internal state *)
