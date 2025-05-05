@@ -124,4 +124,7 @@ let () =
       current_strategy (* Pass the specific strategy ref *)
   in
 
-  Lwt_main.run (connect_to_data_stream config.data_layer_uri message_handler)
+  let login_msg = Yojson.Safe.to_string (`Assoc []) in
+  let heartbeat_msg = Yojson.Safe.to_string (`Assoc []) in
+
+  Lwt_main.run (connect_to_data_stream config.data_layer_uri message_handler login_msg heartbeat_msg)
