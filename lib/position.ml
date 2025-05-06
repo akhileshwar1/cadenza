@@ -75,24 +75,28 @@ let update_or_insert_position (positions : t list) (order : Order.t) : t list =
           let total_cost = (float_of_int pos.buy_qty *. pos.net_buy_price) +. (float_of_int qty *. price) in
           let new_buy_price = total_cost /. float_of_int (pos.buy_qty + qty) in
           let net_price = (new_buy_price +. pos.net_sell_price) /. 2.0 in
+          let side = if total_qty > 0 then Buy else Sell in
           { pos with
             buy_qty = pos.buy_qty + qty;
             net_qty = float_of_int total_qty;
             net_buy_price = new_buy_price;
             net_price = net_price;
             value = float_of_int total_qty *. net_price;
+            side = side;
           }
         | Sell ->
           let total_qty = int_of_float pos.net_qty - qty in
           let total_cost = (float_of_int pos.sell_qty *. pos.net_sell_price) +. (float_of_int qty *. price) in
           let new_sell_price = -. total_cost /. float_of_int (pos.sell_qty - qty) in
           let net_price = (new_sell_price +. pos.net_buy_price) /. 2.0 in
+          let side = if total_qty > 0 then Buy else Sell in
           { pos with
             sell_qty = pos.sell_qty - qty;
             net_qty = float_of_int total_qty;
             net_sell_price = new_sell_price;
             net_price = net_price;
             value = float_of_int total_qty *. net_price;
+            side = side;
           }
       in
 
