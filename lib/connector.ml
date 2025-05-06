@@ -85,7 +85,7 @@ let rec heartbeat_loop conn interval_seconds heartbeat_msg =
 
 (* The main function to connect and handle messages *)
 let connect_to_data_stream (uri_string : string) (on_raw_message : raw_message_callback) (login_msg : string)
-  (heartbeat_msg : string): unit Lwt.t =
+  (heartbeat_msg : string) (login : bool) : unit Lwt.t =
   let uri = Uri.of_string uri_string in
   (* Extract scheme for validation *)
   let scheme = Uri.scheme uri in
@@ -221,12 +221,18 @@ let connect_to_data_stream (uri_string : string) (on_raw_message : raw_message_c
 
 
       Lwt_io.printf "WebSocket connection established.\n" >>= fun () ->
-      Lwt.async (fun () -> read_loop conn); (* Start reading ASAP *)
-      let login_frame = Websocket.Frame.create ~opcode:Text ~content:login_msg () in
-      Websocket_lwt_unix.write conn login_frame >>= fun () ->
-      Lwt_io.printf " sent login frame %s \n " login_msg >>= fun () ->
-      Lwt.async (fun () -> heartbeat_loop conn 10 heartbeat_msg); (* 10 second interval *)
-      Lwt.return_unit
+      if login then begin
+        Lwt.async (fun () -> read_loop conn);  (* Start reading ASAP *)
+        let login_frame = Websocket.Frame.create ~opcode:Text ~content:login_msg () in
+        Websocket_lwt_unix.write conn login_frame >>= fun () ->
+        Lwt_io.printf " sent login frame %s \n " login_msg >>= fun () ->
+        Lwt.async (fun () -> heartbeat_loop conn 10 heartbeat_msg);  (* 10 second interval *)
+        Lwt.return_unit
+        end else begin
+        read_loop conn
+        (* Lwt.async (fun () -> read_loop conn);  (* Start reading ASAP *) *)
+        (* Lwt.return_unit *)
+        end
     )  (* This is the closing parenthesis of the try block function *)
     (fun exn ->
       (* Handle connection errors, including potential exceptions from resolution *)
