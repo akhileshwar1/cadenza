@@ -68,8 +68,6 @@ let generate_mock_option_chain candle : Option_chain.t Lwt.t =
     let option: Option_chain.option_data = {
       symbol = "NIFTY50"; 
       ltp = premium;
-      bid = premium -. 0.5;
-      ask = premium +. 0.5;
       delta = delta;
       strike = "";
     } in
@@ -116,7 +114,7 @@ let generate_close_orders_for_position (price : float) (pos : Position.t) : Orde
       trigger_price = 0.0;
       side;
       order_type = Order.Market;
-      product = Order.MIS;
+      product = Order.CNC;
       validity = Order.DAY;
       status = Some Order.Pending;
       strategy_name = "AutoClose";
@@ -265,6 +263,7 @@ let on_event (state : 'local_state Strategy.state) (event : event) : 'local_stat
       | Between, Upper ->
         Printf.printf "in upper breach! %!";
         generate_upper_breach_orders ~state ~option_chain ~candle ~offset
+
       | Between, Lower ->
         Printf.printf "in lower breach! %!";
         generate_lower_breach_orders ~state ~option_chain ~candle ~offset

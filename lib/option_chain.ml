@@ -6,8 +6,6 @@ type option_data = {
   symbol : string;
   ltp : float;
   delta : float;
-  bid : float;
-  ask : float;
   strike : string;
 }
 
@@ -32,16 +30,12 @@ let parse_option_data json : option_data =
   let symbol = safe_to_string "symbol" json in
   let ltp = safe_to_float "ltp" json in
   let delta = safe_to_float "delta" json in
-  let bid = safe_to_float "bid" json in
-  let ask = safe_to_float "ask" json in
   let strike = safe_to_string "strike" json in
-  log (Printf.sprintf "Parsed option: %s ltp=%f delta=%f bid=%f ask=%f %s" symbol ltp delta bid ask strike);
+  log (Printf.sprintf "Parsed option: %s ltp=%f delta=%f %s" symbol ltp delta strike);
   {
     symbol;
     ltp;
     delta;
-    bid;
-    ask;
     strike;
   }
 

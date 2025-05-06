@@ -3,8 +3,6 @@ type option_data = {
   symbol : string;
   ltp : float;
   delta : float;
-  bid : float;
-  ask : float;
   strike : string;
 }
 
