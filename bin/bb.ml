@@ -103,89 +103,6 @@ let create_message_handler
       )
   )
 
-let update_or_insert_position (positions : Cadenza.Position.t list) (order : Cadenza.Order.t) : Cadenza.Position.t list =
-  let symbol = order.tradingsymbol in
-  let qty = order.quantity in
-  let price = order.price in
-  let side = order.side in
-  let now = Unix.gettimeofday () in
-  let open Cadenza.Position in
-
-  let rec update_positions acc = function
-    | [] ->
-      let new_position =
-        match side with
-        | Buy ->
-          {
-            opened_at_epoch = now;
-            closed_at_epoch = 0.0;
-            symbol;
-            net_buy_qty = qty;
-            net_sell_qty = 0;
-            net_buy_price = price;
-            net_sell_price = 0.0;
-            current_ask_price = 0.0;
-            current_bid_price = 0.0;
-            side = Buy;
-            value = float_of_int qty *. price;
-            status = Open;
-          }
-        | Sell ->
-          {
-            opened_at_epoch = now;
-            closed_at_epoch = 0.0;
-            symbol;
-            net_buy_qty = 0;
-            net_sell_qty = qty;
-            net_buy_price = 0.0;
-            net_sell_price = price;
-            current_ask_price = 0.0;
-            current_bid_price = 0.0;
-            side = Sell;
-            value = float_of_int qty *. price;
-            status = Open;
-          }
-      in
-      List.rev (new_position :: acc)
-
-    | pos :: rest when pos.symbol = symbol ->
-      let updated_pos =
-        match side with
-        | Buy ->
-          let total_qty = pos.net_buy_qty + qty in
-          let total_cost = (float_of_int pos.net_buy_qty *. pos.net_buy_price) +. (float_of_int qty *. price) in
-          let new_buy_price = total_cost /. float_of_int total_qty in
-          { pos with
-            net_buy_qty = total_qty;
-            net_buy_price = new_buy_price;
-            value = float_of_int total_qty *. new_buy_price;
-          }
-        | Sell ->
-          let total_qty = pos.net_sell_qty + qty in
-          let total_cost = (float_of_int pos.net_sell_qty *. pos.net_sell_price) +. (float_of_int qty *. price) in
-          let new_sell_price = total_cost /. float_of_int total_qty in
-          { pos with
-            net_sell_qty = total_qty;
-            net_sell_price = new_sell_price;
-            value = float_of_int total_qty *. new_sell_price;
-          }
-      in
-
-      let updated_pos =
-        if updated_pos.net_buy_qty = updated_pos.net_sell_qty && updated_pos.net_buy_qty > 0 then
-          { updated_pos with status = Closed; closed_at_epoch = now }
-        else
-          updated_pos
-      in
-
-      List.rev_append acc (updated_pos :: rest)
-
-    | pos :: rest ->
-      update_positions (pos :: acc) rest
-  in
-
-  update_positions [] positions
-
 let process_order_update
   (json : Yojson.Safe.t)
   (strategy_ref : ('a, 'b) Cadenza.Strategy.t ref)
@@ -197,7 +114,7 @@ let process_order_update
         Lwt.return_unit  (* Skip non-completed orders *)
       else
         let state = (!strategy_ref).state in
-        let updated_positions = update_or_insert_position state.positions order in
+        let updated_positions = Cadenza.Position.update_or_insert_position state.positions order in
         let updated_state = { state with positions = updated_positions } in
         strategy_ref := Cadenza.Strategy.update_state !strategy_ref updated_state;
         Lwt.return_unit
@@ -260,6 +177,7 @@ let () =
       message_handler 
       login_msg
       heartbeat_msg
+      false
   in
 
   let oms_update_promise =
@@ -268,6 +186,7 @@ let () =
       order_update_handler
       login_msg
       heartbeat_msg
+      false
   in
 
   Lwt_main.run (Lwt.join [market_data_promise; oms_update_promise])

@@ -95,23 +95,18 @@ let json_to_event (json : Yojson.Safe.t) : event =
   let candle = json_to_candle json in
   Market_data_event candle
 
-let generate_close_orders_for_position (pos : Position.t) : Order.t list =
+let generate_close_orders_for_position (price : float) (pos : Position.t) : Order.t list =
   if pos.status = Closed then []
   else
     let quantity =
       match pos.side with
-      | Buy -> pos.net_buy_qty
-      | Sell -> pos.net_sell_qty
+      | Buy -> pos.buy_qty
+      | Sell -> pos.sell_qty
     in
     let side =
       match pos.side with
       | Buy -> Order.Sell
       | Sell -> Order.Buy
-    in
-    let price =
-      match side with
-      | Order.Buy -> pos.current_ask_price
-      | Order.Sell -> pos.current_bid_price
     in
     let order : Order.t = {
       tradingsymbol = pos.symbol;
@@ -128,10 +123,10 @@ let generate_close_orders_for_position (pos : Position.t) : Order.t list =
     } in
     [order]
 
-let expired_close_orders (positions : Position.t list) (current_time : float) : Order.t list =
+let expired_close_orders (price: float) (positions : Position.t list) (current_time : float) : Order.t list =
   positions
   |> List.filter (fun (pos : Position.t) -> pos.status = Open && (current_time -. pos.opened_at_epoch) >= 600.0)
-  |> List.concat_map generate_close_orders_for_position
+  |> List.concat_map (generate_close_orders_for_position price)
 
 let find_nearest_strike (target : float) (option_chain : Option_chain.t) : float =
   let all_strikes =
@@ -262,7 +257,7 @@ let on_event (state : 'local_state Strategy.state) (event : event) : 'local_stat
     let offset = get_offset_from_day current_time expiry_epoch in
 
     (* Close positions if 10 minutes have passed *)
-    let expired_close_orders = expired_close_orders state.positions current_time in
+    let expired_close_orders = expired_close_orders candle.close_price state.positions current_time in
 
     (* Orders based on breach transitions *)
     let transition_orders =
@@ -277,14 +272,14 @@ let on_event (state : 'local_state Strategy.state) (event : event) : 'local_stat
       | Upper, Lower ->
         let close =
           state.positions
-          |> List.concat_map generate_close_orders_for_position in
+          |> List.concat_map (generate_close_orders_for_position candle.close_price) in
         let open_ = generate_lower_breach_orders ~state ~option_chain ~candle ~offset in
         close @ open_
 
       | Lower, Upper ->
         let close =
           state.positions
-          |> List.concat_map generate_close_orders_for_position in
+          |> List.concat_map (generate_close_orders_for_position candle.close_price) in
         let open_ = generate_upper_breach_orders ~state ~option_chain ~candle ~offset in
         close @ open_
 
@@ -295,8 +290,10 @@ let on_event (state : 'local_state Strategy.state) (event : event) : 'local_stat
     in
 
     let all_orders = expired_close_orders @ transition_orders @ state.pending_orders in
+    let positions = Position.update_positions_with_option_chain option_chain state.positions in
     let new_local_state = { state.local_state with last_breach = current_breach } in
-    let new_state = { state with pending_orders = all_orders; local_state = new_local_state } in
+    let new_state = { state with pending_orders = all_orders; local_state = new_local_state;
+                      positions = positions } in
 
     Lwt.return new_state
 
