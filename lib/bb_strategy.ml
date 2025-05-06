@@ -10,7 +10,6 @@ type breach_status =
 (* Local state specific to AlternateStrategy *)
 type local_state = {
   last_breach : breach_status;
-  expiry : string;
 } 
 
 (* Config specific to AlternateStrategy *)
@@ -35,7 +34,6 @@ type event =
 (* Initialize the strategy state *)
 let initial_local_state = {
   last_breach = Between;
-  expiry = "08-05-2025";
 }
 
 (* Convert JSON to candle type *)
@@ -183,8 +181,22 @@ let get_offset_from_day (today : float) (expiry : float) : float =
   | 1 -> 50.0
   | _ -> 0.0
 
-let generate_upper_breach_orders ~state ~option_chain ~candle ~offset : Order.t list =
-  let expiry = state.local_state.expiry in
+let convert_date_to_symbol (date_str : string) : string =
+  let month_abbr = [| ""; "JAN"; "FEB"; "MAR"; "APR"; "MAY"; "JUN";
+    "JUL"; "AUG"; "SEP"; "OCT"; "NOV"; "DEC" |] in
+  match String.split_on_char '-' date_str with
+  | [day; month; _year] ->
+    let month_num = int_of_string month in
+    let abbr = month_abbr.(month_num) in
+    day ^ abbr
+  | _ -> failwith "Invalid date format"
+
+let generate_upper_breach_orders ~option_chain ~candle ~offset : Order.t list =
+  let expiry =
+    match option_chain with
+    | first:: _ -> fst first
+    | [] -> ""
+  in
   let current_price = candle.close_price in
   Printf.printf "current price is %f and offset %f\n%!" current_price offset;
 
@@ -198,8 +210,8 @@ let generate_upper_breach_orders ~state ~option_chain ~candle ~offset : Order.t 
   let put_data = get_option_data option_chain expiry put_strike "PE" in
   let put_delta = abs_float put_data.delta in
   let put_qty = int_of_float (ceil (0.5 *. call_delta_exposure /. put_delta)) in
-  let call_trading_symbol = "NIFTY08MAY" ^ call_data.strike in
-  let put_trading_symbol = "NIFTY08MAY" ^ put_data.strike in
+  let call_trading_symbol = "NIFTY" ^ convert_date_to_symbol expiry ^ call_data.strike in
+  let put_trading_symbol = "NIFTY" ^ convert_date_to_symbol expiry ^ put_data.strike in
 
   let call_order =
     Order.make_order ~tradingsymbol:call_trading_symbol ~quantity:call_qty ~price:call_data.ltp ~side:Order.Sell ~strategy_name:"bb"
@@ -209,8 +221,12 @@ let generate_upper_breach_orders ~state ~option_chain ~candle ~offset : Order.t 
   in
   [call_order; put_order]
 
-let generate_lower_breach_orders ~state ~option_chain ~candle ~offset : Order.t list =
-  let expiry = state.local_state.expiry in
+let generate_lower_breach_orders ~option_chain ~candle ~offset : Order.t list =
+  let expiry =
+    match option_chain with
+    | first:: _ -> fst first
+    | [] -> ""
+  in
   let current_price = candle.close_price in
 
   let put_strike = find_nearest_strike (current_price -. offset) option_chain in
@@ -223,9 +239,8 @@ let generate_lower_breach_orders ~state ~option_chain ~candle ~offset : Order.t 
   let call_data = get_option_data option_chain expiry call_strike "CE" in
   let call_delta = abs_float call_data.delta in
   let call_qty = int_of_float (ceil (0.5 *. put_delta_exposure /. call_delta)) in
-  let call_trading_symbol = "NIFTY08MAY" ^ call_data.strike in
-  let put_trading_symbol = "NIFTY08MAY" ^ put_data.strike in
-
+  let call_trading_symbol = "NIFTY08MAY" ^ convert_date_to_symbol expiry ^ call_data.strike in
+  let put_trading_symbol = "NIFTY08MAY" ^ convert_date_to_symbol expiry ^ put_data.strike in
 
   let put_order =
     Order.make_order ~tradingsymbol:put_trading_symbol ~quantity:put_qty ~price:put_data.ltp ~side:Order.Sell ~strategy_name:"bb"
@@ -250,7 +265,12 @@ let on_event (state : 'local_state Strategy.state) (event : event) : 'local_stat
       else if candle.close_price < candle.lower_band then Lower
       else Between
     in
-    let expiry = state.local_state.expiry in
+    let expiry =  (* Cornerstone: we are assuming the option_chain will always have the expiry to be worked upon *)
+      match option_chain with
+      | first:: _ -> fst first (*takes the expiry out of (expiry, strikes) pair *)
+      | [] -> ""
+    in
+    (* let expiry = state.local_state.expiry in *)
     let expiry_epoch = expiry_to_epoch expiry in
     let offset = get_offset_from_day current_time expiry_epoch in
 
@@ -262,35 +282,35 @@ let on_event (state : 'local_state Strategy.state) (event : event) : 'local_stat
       match state.local_state.last_breach, current_breach with
       | Between, Upper ->
         Printf.printf "in upper breach! %!";
-        generate_upper_breach_orders ~state ~option_chain ~candle ~offset
+        generate_upper_breach_orders ~option_chain ~candle ~offset
 
       | Between, Lower ->
         Printf.printf "in lower breach! %!";
-        generate_lower_breach_orders ~state ~option_chain ~candle ~offset
+        generate_lower_breach_orders ~option_chain ~candle ~offset
 
       | Upper, Lower ->
         let close =
           state.positions
           |> List.concat_map (generate_close_orders_for_position candle.close_price) in
-        let open_ = generate_lower_breach_orders ~state ~option_chain ~candle ~offset in
+        let open_ = generate_lower_breach_orders ~option_chain ~candle ~offset in
         close @ open_
 
       | Lower, Upper ->
         let close =
           state.positions
           |> List.concat_map (generate_close_orders_for_position candle.close_price) in
-        let open_ = generate_upper_breach_orders ~state ~option_chain ~candle ~offset in
+        let open_ = generate_upper_breach_orders ~option_chain ~candle ~offset in
         close @ open_
 
       | Between, Between
         | _, Between
         | Upper, Upper
-        | Lower, Lower -> generate_upper_breach_orders ~state ~option_chain ~candle ~offset
+        | Lower, Lower -> generate_upper_breach_orders ~option_chain ~candle ~offset
     in
 
     let all_orders = expired_close_orders @ transition_orders @ state.pending_orders in
     let positions = Position.update_positions_with_option_chain option_chain state.positions in
-    let new_local_state = { state.local_state with last_breach = current_breach } in
+    let new_local_state = { last_breach = current_breach } in
     let new_state = { state with pending_orders = all_orders; local_state = new_local_state;
                       positions = positions } in
 
