@@ -32,6 +32,7 @@ let update_or_insert_position (positions : t list) (order : Order.t) : t list =
 
   let rec update_positions acc = function
     | [] ->
+      Printf.printf "Adding new position for symbol %s with price %f and qty %d \n%!" symbol price qty;
       let new_position =
         match side with
         | Buy ->
@@ -76,6 +77,19 @@ let update_or_insert_position (positions : t list) (order : Order.t) : t list =
           let new_buy_price = total_cost /. float_of_int (pos.buy_qty + qty) in
           let net_price = (new_buy_price +. pos.net_sell_price) /. 2.0 in
           let side = if total_qty > 0 then Buy else Sell in
+          Printf.printf
+            "Updating position for symbol %s:\n\
+             - net_price: %.2f -> %.2f\n\
+             - net_qty: %.2d\n\
+             - side: %s\n\
+             - value: %.2f -> %.2f\n%!"
+            symbol
+            pos.net_price
+            net_price
+            total_qty
+            "BUY"
+            pos.value
+            (float_of_int total_qty *. net_price);
           { pos with
             buy_qty = pos.buy_qty + qty;
             net_qty = float_of_int total_qty;
@@ -90,6 +104,19 @@ let update_or_insert_position (positions : t list) (order : Order.t) : t list =
           let new_sell_price = -. total_cost /. float_of_int (pos.sell_qty - qty) in
           let net_price = (new_sell_price +. pos.net_buy_price) /. 2.0 in
           let side = if total_qty > 0 then Buy else Sell in
+          Printf.printf
+            "Updating position for symbol %s:\n\
+             - net_price: %.2f -> %.2f\n\
+             - net_qty: %.2d\n\
+             - side: %s\n\
+             - value: %.2f -> %.2f\n%!"
+            symbol
+            pos.net_price
+            net_price
+            total_qty
+            "SELL"
+            pos.value
+            (float_of_int total_qty *. net_price);
           { pos with
             sell_qty = pos.sell_qty - qty;
             net_qty = float_of_int total_qty;
@@ -141,7 +168,9 @@ let update_positions_with_option_chain
     (fun pos ->
       match find_option_data pos.symbol with
       | Some data ->
+        let prev_value = pos.value in
         let value = pos.net_qty *. data.ltp in
+        Printf.printf "Updating position of symbol %s with value from %f to %f \n%!" pos.symbol prev_value value;
         {
           pos with
           value;

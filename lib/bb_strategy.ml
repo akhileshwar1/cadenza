@@ -281,14 +281,15 @@ let on_event (state : 'local_state Strategy.state) (event : event) : 'local_stat
     let transition_orders =
       match state.local_state.last_breach, current_breach with
       | Between, Upper ->
-        Printf.printf "in upper breach! %!";
+        Printf.printf "in Upper breach! %! %f %f %f \n %!" candle.lower_band candle.close_price candle.upper_band;
         generate_upper_breach_orders ~option_chain ~candle ~offset
 
       | Between, Lower ->
-        Printf.printf "in lower breach! %!";
+        Printf.printf "in Lower breach! %! %f %f %f \n %!" candle.lower_band candle.close_price candle.upper_band;
         generate_lower_breach_orders ~option_chain ~candle ~offset
 
       | Upper, Lower ->
+        Printf.printf "in Upper Lower Zig Zag! %! %f %f %f \n %!" candle.lower_band candle.close_price candle.upper_band;
         let close =
           state.positions
           |> List.concat_map (generate_close_orders_for_position candle.close_price) in
@@ -296,6 +297,7 @@ let on_event (state : 'local_state Strategy.state) (event : event) : 'local_stat
         close @ open_
 
       | Lower, Upper ->
+        Printf.printf "in Lower Upper Zig Zag! %! %f %f %f \n %!" candle.lower_band candle.close_price candle.upper_band;
         let close =
           state.positions
           |> List.concat_map (generate_close_orders_for_position candle.close_price) in
@@ -305,7 +307,9 @@ let on_event (state : 'local_state Strategy.state) (event : event) : 'local_stat
       | Between, Between
         | _, Between
         | Upper, Upper
-        | Lower, Lower -> generate_upper_breach_orders ~option_chain ~candle ~offset
+        | Lower, Lower -> 
+        Printf.printf "NO breach! %! %f %f %f \n %!" candle.lower_band candle.close_price candle.upper_band;
+        generate_upper_breach_orders ~option_chain ~candle ~offset
     in
 
     let all_orders = expired_close_orders @ transition_orders @ state.pending_orders in

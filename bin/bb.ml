@@ -5,7 +5,8 @@ open Cadenza.Connector
 
 (* Function to send a single order to the OMS via HTTP POST *)
 let send_order_to_oms (oms_uri : Uri.t) (order : Cadenza.Order.t) : unit Lwt.t =
-  Lwt_io.printf "Attempting to send order: %s %d @ %.2f to OMS...\n"
+  Lwt_io.printf "Attempting to send order: %s %s %d @ %.2f to OMS...\n"
+    order.tradingsymbol
     (match order.side with | Buy -> "BUY" | Sell -> "SELL")
     order.quantity
     order.price >>= fun () ->
