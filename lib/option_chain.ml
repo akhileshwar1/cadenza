@@ -11,7 +11,7 @@ type option_data = {
 
 type t = (string * (float * (string * option_data) list) list) list
 
-let log msg = Printf.printf "[LOG] %s\n%!" msg
+(* let log msg = Printf.printf "[LOG] %s\n%!" msg *)
 
 let safe_to_string key json =
   match json |> member key with

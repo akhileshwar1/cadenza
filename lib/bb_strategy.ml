@@ -202,7 +202,7 @@ let generate_upper_breach_orders ~option_chain ~candle ~offset : Order.t list =
 
   let call_strike = find_nearest_strike (current_price +. offset) option_chain in
   let call_data = get_option_data option_chain expiry call_strike "CE" in
-  let call_qty = 10000 in
+  let call_qty = 75 in
   let call_delta = abs_float call_data.delta in
   let call_delta_exposure = call_delta *. float_of_int call_qty in
 
@@ -231,7 +231,7 @@ let generate_lower_breach_orders ~option_chain ~candle ~offset : Order.t list =
 
   let put_strike = find_nearest_strike (current_price -. offset) option_chain in
   let put_data = get_option_data option_chain expiry put_strike "PE" in
-  let put_qty = 10000 in
+  let put_qty = 75 in
   let put_delta = abs_float put_data.delta in
   let put_delta_exposure = put_delta *. float_of_int put_qty in
 
@@ -239,8 +239,8 @@ let generate_lower_breach_orders ~option_chain ~candle ~offset : Order.t list =
   let call_data = get_option_data option_chain expiry call_strike "CE" in
   let call_delta = abs_float call_data.delta in
   let call_qty = int_of_float (ceil (0.5 *. put_delta_exposure /. call_delta)) in
-  let call_trading_symbol = "NIFTY08MAY" ^ convert_date_to_symbol expiry ^ call_data.strike in
-  let put_trading_symbol = "NIFTY08MAY" ^ convert_date_to_symbol expiry ^ put_data.strike in
+  let call_trading_symbol = "NIFTY" ^ convert_date_to_symbol expiry ^ call_data.strike in
+  let put_trading_symbol = "NIFTY" ^ convert_date_to_symbol expiry ^ put_data.strike in
 
   let put_order =
     Order.make_order ~tradingsymbol:put_trading_symbol ~quantity:put_qty ~price:put_data.ltp ~side:Order.Sell ~strategy_name:"bb"

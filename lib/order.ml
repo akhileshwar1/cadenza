@@ -88,7 +88,7 @@ let make_order
     trigger_price = 0.0;
     side;
     order_type = Market;
-    product = MIS;
+    product = CNC;
     validity = DAY;
     status = Some Pending;
     strategy_name;
