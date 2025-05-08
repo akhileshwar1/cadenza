@@ -111,9 +111,9 @@ let process_order_update
   try
     match Cadenza.Order.of_yojson json with
     | order ->
-      if order.status <> Some Cadenza.Order.Completed then
-        Lwt.return_unit  (* Skip non-completed orders *)
-      else
+      (* if order.status <> Some Cadenza.Order.Completed then *)
+      (*   Lwt.return_unit  (* Skip non-completed orders *) *)
+      (* else *)
         let state = (!strategy_ref).state in
         let updated_positions = Cadenza.Position.update_or_insert_position state.positions order in
         let updated_state = { state with positions = updated_positions } in
