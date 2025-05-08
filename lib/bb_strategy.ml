@@ -173,7 +173,7 @@ let rec count_trading_days from_time to_time =
     if is_weekend tm then rest else 1 + rest
 
 let get_offset_from_day (today : float) (expiry : float) : float =
-  let trading_days = count_trading_days today (expiry -. 86400.0) in
+  let trading_days = count_trading_days today expiry in
   match trading_days with
   | 4 -> 200.0
   | 3 -> 150.0
