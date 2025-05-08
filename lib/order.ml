@@ -56,6 +56,7 @@ type t = {
   validity : validity_type;
   status : status_type option;
   strategy_name : string;
+  lot : int;
 }
 
 (* Helper function to convert an Order.t to a Yojson.Safe.t *)
@@ -66,6 +67,7 @@ let json_of_order (order : t) : Yojson.Safe.t =
     ("validity", `String (match order.validity with | DAY -> "DAY" | IOC -> "IOC"));
     ("product", `String (match order.product with | MIS -> "MIS" | CNC -> "CNC" | NRML -> "NRML"));
     ("quantity", `Int order.quantity);
+    ("lot", `Int order.lot);
     ("price", `Float order.price);
     ("trigger_price", `Float 0.1);
     ("order_type", `String "Limit");
@@ -76,6 +78,7 @@ let json_of_order (order : t) : Yojson.Safe.t =
 let make_order
   ~(tradingsymbol : string)
   ~(quantity : int)
+  ~(lots : int)
   ~(price : float)
   ~(side : side)
   ~(strategy_name : string)
@@ -91,6 +94,7 @@ let make_order
     product = CNC;
     validity = DAY;
     status = Some Pending;
+    lot = lots;
     strategy_name;
   }
 
@@ -150,6 +154,7 @@ let of_yojson (json : Yojson.Safe.t) : t =
     tradingsymbol = safe to_string "tradingsymbol";
     exchange = safe to_string "exchange";
     quantity = safe to_int "quantity";
+    lot = safe to_int "quantity" / 75;
     price = safe to_float "price";
     trigger_price = safe to_float "trigger_price";
     side = safe_match "side" to_string;
@@ -190,6 +195,7 @@ let to_yojson (order : t) : Yojson.Safe.t =
     "price", `Float order.price;
     "trigger_price", `Float order.trigger_price;
     "side", `String (string_of_side order.side);
+    "lot", `Int order.lot;
     "order_type", `String (string_of_order_type order.order_type);
     "product", `String (string_of_product order.product);
     "validity", `String (string_of_validity order.validity);

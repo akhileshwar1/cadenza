@@ -62,6 +62,7 @@ let on_event (state : 'local_state Strategy.state) (event : event) : 'local_stat
       Order.tradingsymbol = "TCS";  (* Hardcoded for now *)
       exchange = "NSE";
       quantity = 50;
+      lot = 0;
       price = candle.close_price;  (* Market order -> fill at close price *)
       trigger_price = 0.0;
       side = next_side;

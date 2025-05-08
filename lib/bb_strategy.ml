@@ -91,6 +91,11 @@ let json_to_event (json : Yojson.Safe.t) : event =
   let candle = json_to_candle json in
   Market_data_event candle
 
+let lots_and_quantity (lot_size : int) (quantity : int) : int * int =
+  let num_lots = quantity / lot_size in
+  let adjusted_quantity = num_lots * lot_size in
+  (num_lots, adjusted_quantity)
+
 let generate_close_orders_for_position (price : float) (pos : Position.t) : Order.t list =
   if pos.status = Closed then []
   else
@@ -99,6 +104,7 @@ let generate_close_orders_for_position (price : float) (pos : Position.t) : Orde
       | Buy -> pos.buy_qty
       | Sell -> pos.sell_qty
     in
+    let lots, adj_quantity = lots_and_quantity 75 quantity in
     let side =
       match pos.side with
       | Buy -> Order.Sell
@@ -107,7 +113,8 @@ let generate_close_orders_for_position (price : float) (pos : Position.t) : Orde
     let order : Order.t = {
       tradingsymbol = pos.symbol;
       exchange = "NSE";
-      quantity;
+      quantity = adj_quantity;
+      lot = lots;
       price;
       trigger_price = 0.0;
       side;
@@ -202,22 +209,27 @@ let generate_upper_breach_orders ~option_chain ~candle ~offset : Order.t list =
 
   let call_strike = find_nearest_strike (current_price +. offset) option_chain in
   let call_data = get_option_data option_chain expiry call_strike "CE" in
-  let call_qty = 75 in
+  let call_qty = 7500 in
+  let call_lots, call_adj_qty = lots_and_quantity 75 call_qty in
   let call_delta = abs_float call_data.delta in
-  let call_delta_exposure = call_delta *. float_of_int call_qty in
+  let call_delta_exposure = call_delta *. float_of_int call_adj_qty in
 
   let put_strike = find_nearest_strike (current_price -. offset) option_chain in
   let put_data = get_option_data option_chain expiry put_strike "PE" in
   let put_delta = abs_float put_data.delta in
+  Printf.printf " call delta exposure and put delta are %f %f \n%!" call_delta_exposure put_delta;
   let put_qty = int_of_float (ceil (0.5 *. call_delta_exposure /. put_delta)) in
+  let put_lots, put_adj_qty = lots_and_quantity 75 put_qty in
   let call_trading_symbol = "NIFTY" ^ convert_date_to_symbol expiry ^ call_data.strike in
   let put_trading_symbol = "NIFTY" ^ convert_date_to_symbol expiry ^ put_data.strike in
 
   let call_order =
-    Order.make_order ~tradingsymbol:call_trading_symbol ~quantity:call_qty ~price:call_data.ltp ~side:Order.Sell ~strategy_name:"bb"
+    Order.make_order ~tradingsymbol:call_trading_symbol ~quantity:call_adj_qty ~lots: call_lots
+                     ~price:call_data.ltp ~side:Order.Sell ~strategy_name:"bb"
   in
   let put_order =
-    Order.make_order ~tradingsymbol:put_trading_symbol ~quantity:put_qty ~price:put_data.ltp ~side:Order.Sell ~strategy_name:"bb"
+    Order.make_order ~tradingsymbol:put_trading_symbol ~quantity:put_adj_qty ~lots:put_lots
+                     ~price:put_data.ltp ~side:Order.Sell ~strategy_name:"bb"
   in
   [call_order; put_order]
 
@@ -231,22 +243,27 @@ let generate_lower_breach_orders ~option_chain ~candle ~offset : Order.t list =
 
   let put_strike = find_nearest_strike (current_price -. offset) option_chain in
   let put_data = get_option_data option_chain expiry put_strike "PE" in
-  let put_qty = 75 in
+  let put_qty = 7500 in
+  let put_lots, put_adj_qty = lots_and_quantity 75 put_qty in
   let put_delta = abs_float put_data.delta in
-  let put_delta_exposure = put_delta *. float_of_int put_qty in
+  let put_delta_exposure = put_delta *. float_of_int put_adj_qty in
 
   let call_strike = find_nearest_strike (current_price +. offset) option_chain in
   let call_data = get_option_data option_chain expiry call_strike "CE" in
   let call_delta = abs_float call_data.delta in
+  Printf.printf " put delta exposure and call delta are %f %f \n%!" put_delta_exposure call_delta;
   let call_qty = int_of_float (ceil (0.5 *. put_delta_exposure /. call_delta)) in
+  let call_lots, call_adj_qty = lots_and_quantity 75 call_qty in
   let call_trading_symbol = "NIFTY" ^ convert_date_to_symbol expiry ^ call_data.strike in
   let put_trading_symbol = "NIFTY" ^ convert_date_to_symbol expiry ^ put_data.strike in
 
   let put_order =
-    Order.make_order ~tradingsymbol:put_trading_symbol ~quantity:put_qty ~price:put_data.ltp ~side:Order.Sell ~strategy_name:"bb"
+    Order.make_order ~tradingsymbol:put_trading_symbol ~quantity:put_adj_qty ~lots:put_lots
+                     ~price:put_data.ltp ~side:Order.Sell ~strategy_name:"bb"
   in
   let call_order =
-    Order.make_order ~tradingsymbol:call_trading_symbol ~quantity:call_qty ~price:call_data.ltp ~side:Order.Sell ~strategy_name:"bb"
+    Order.make_order ~tradingsymbol:call_trading_symbol ~quantity:call_adj_qty ~lots:call_lots
+                     ~price:call_data.ltp ~side:Order.Sell ~strategy_name:"bb"
   in
   [put_order; call_order]
 
