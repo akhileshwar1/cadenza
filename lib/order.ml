@@ -67,7 +67,7 @@ let json_of_order (order : t) : Yojson.Safe.t =
     ("product", `String (match order.product with | MIS -> "MIS" | CNC -> "CNC" | NRML -> "NRML"));
     ("quantity", `Int order.quantity);
     ("price", `Float order.price);
-    ("trigger_price", `Float 0.0);
+    ("trigger_price", `Float 0.1);
     ("order_type", `String "Limit");
     ("exchange", `String order.exchange);
     ("strategy_name", `String order.strategy_name)
