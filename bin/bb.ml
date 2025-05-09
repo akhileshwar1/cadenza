@@ -3,6 +3,8 @@ open Cadenza.Order
 open Lwt
 open Cadenza.Connector
 
+let mock_order_queue : string Lwt_mvar.t = Lwt_mvar.create_empty ()
+
 (* Function to send a single order to the OMS via HTTP POST *)
 let send_order_to_oms (oms_uri : Uri.t) (order : Cadenza.Order.t) : unit Lwt.t =
   Lwt_io.printf "Attempting to send order: %s %s %d @ %.2f to OMS...\n"
@@ -13,7 +15,14 @@ let send_order_to_oms (oms_uri : Uri.t) (order : Cadenza.Order.t) : unit Lwt.t =
 
   (* Convert order to JSON *)
   let order_json = json_of_order order in
-  let order_body = Yojson.Safe.to_string order_json in
+  let updated_json =
+    match order_json with
+    | `Assoc fields ->
+      `Assoc (("order_status", `String "COMPLETED") :: fields)
+    | _ ->
+      order_json
+  in
+  let order_body = Yojson.Safe.to_string updated_json in
 
   (* Construct the HTTP request *)
   let headers = Cohttp.Header.init_with "Content-Type" "application/json" in
@@ -21,6 +30,9 @@ let send_order_to_oms (oms_uri : Uri.t) (order : Cadenza.Order.t) : unit Lwt.t =
   let meth = `POST in
 
   Lwt_io.printf "Sending POST request to %s with body: %s\n" (Uri.to_string oms_uri) order_body >>= fun () ->
+
+  Lwt_io.printf " putting in the order update\n" >>= fun() ->
+  Lwt_mvar.put mock_order_queue order_body >>= fun () ->
 
   (* Send the request and handle the response *)
   Lwt.catch
@@ -40,7 +52,7 @@ let send_order_to_oms (oms_uri : Uri.t) (order : Cadenza.Order.t) : unit Lwt.t =
       ) else (
         Lwt_io.eprintf "OMS returned an error status: %d %s\n" status_int status_string
       )
-    )
+          )
     (fun exn ->
       let error_msg = Printexc.to_string exn in
       Lwt_io.eprintf "Error sending order to OMS: %s\n" error_msg
@@ -114,6 +126,7 @@ let process_order_update
       (* if order.status <> Some Cadenza.Order.Completed then *)
       (*   Lwt.return_unit  (* Skip non-completed orders *) *)
       (* else *)
+        Lwt_io.printf " in order update" >>= fun () ->
         let state = (!strategy_ref).state in
         let updated_positions = Cadenza.Position.update_or_insert_position state.positions order in
         let updated_state = { state with positions = updated_positions } in
@@ -142,6 +155,15 @@ let create_order_update_handler
         Lwt.return_unit (* Continue processing other messages *)
       )
   )
+
+let start_mock_order_feeder (handler : string -> unit Lwt.t) =
+  let rec loop () =
+    Lwt_io.printf " started mock order feeder\n" >>= fun () ->
+    Lwt_mvar.take mock_order_queue >>= fun order_str ->
+    handler order_str >>= loop
+  in
+  Lwt.async loop;
+  Lwt.return_unit
 
 let () =
   (* Build config *)
@@ -190,4 +212,8 @@ let () =
       false
   in
 
-  Lwt_main.run (Lwt.join [market_data_promise; oms_update_promise])
+  let mock_order_feeder_promise =
+    start_mock_order_feeder order_update_handler
+  in
+
+  Lwt_main.run (Lwt.join [market_data_promise; oms_update_promise; mock_order_feeder_promise])
