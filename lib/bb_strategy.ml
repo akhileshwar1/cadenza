@@ -96,13 +96,10 @@ let lots_and_quantity (lot_size : int) (quantity : int) : int * int =
   let adjusted_quantity = num_lots * lot_size in
   (num_lots, adjusted_quantity)
 
-let generate_close_orders_for_position (price : float) (pos : Position.t) : Order.t list =
+let generate_close_orders_for_position (option_chain : Option_chain.t) (pos : Position.t) : Order.t list =
   if pos.status = Closed then []
   else
-    let quantity =
-      match pos.side with
-      | Buy -> pos.buy_qty
-      | Sell -> pos.sell_qty
+    let quantity = - pos.net_qty 
     in
     let lots, adj_quantity = lots_and_quantity 75 quantity in
     let side =
@@ -110,10 +107,15 @@ let generate_close_orders_for_position (price : float) (pos : Position.t) : Orde
       | Buy -> Order.Sell
       | Sell -> Order.Buy
     in
+    let price = 
+      match Position.find_option_data (Position.extract_strike pos.symbol) option_chain with
+      | Some data -> data.ltp
+      | None -> 0.
+    in
     let order : Order.t = {
       tradingsymbol = pos.symbol;
       exchange = "NSE";
-      quantity = adj_quantity;
+      quantity = abs adj_quantity; (*quantity in order is scalar, but in position it is a vector*)
       lot = lots;
       price;
       trigger_price = 0.0;
@@ -126,10 +128,10 @@ let generate_close_orders_for_position (price : float) (pos : Position.t) : Orde
     } in
     [order]
 
-let expired_close_orders (price: float) (positions : Position.t list) (current_time : float) : Order.t list =
+let expired_close_orders (positions : Position.t list) (current_time : float) (option_chain: Option_chain.t) : Order.t list =
   positions
   |> List.filter (fun (pos : Position.t) -> pos.status = Open && (current_time -. pos.opened_at_epoch) >= 600.0)
-  |> List.concat_map (generate_close_orders_for_position price)
+  |> List.concat_map (generate_close_orders_for_position option_chain)
 
 let find_nearest_strike (target : float) (option_chain : Option_chain.t) : float =
   let all_strikes =
@@ -292,7 +294,7 @@ let on_event (state : 'local_state Strategy.state) (event : event) : 'local_stat
     let offset = get_offset_from_day current_time expiry_epoch in
 
     (* Close positions if 10 minutes have passed *)
-    let expired_close_orders = expired_close_orders candle.close_price state.positions current_time in
+    let expired_close_orders = expired_close_orders state.positions current_time option_chain in
 
     (* Orders based on breach transitions *)
     let transition_orders =
@@ -309,7 +311,7 @@ let on_event (state : 'local_state Strategy.state) (event : event) : 'local_stat
         Printf.printf "in Upper Lower Zig Zag! %! %f %f %f \n %!" candle.lower_band candle.close_price candle.upper_band;
         let close =
           state.positions
-          |> List.concat_map (generate_close_orders_for_position candle.close_price) in
+          |> List.concat_map (generate_close_orders_for_position option_chain) in
         let open_ = generate_lower_breach_orders ~option_chain ~candle ~offset in
         close @ open_
 
@@ -317,7 +319,7 @@ let on_event (state : 'local_state Strategy.state) (event : event) : 'local_stat
         Printf.printf "in Lower Upper Zig Zag! %! %f %f %f \n %!" candle.lower_band candle.close_price candle.upper_band;
         let close =
           state.positions
-          |> List.concat_map (generate_close_orders_for_position candle.close_price) in
+          |> List.concat_map (generate_close_orders_for_position option_chain) in
         let open_ = generate_upper_breach_orders ~option_chain ~candle ~offset in
         close @ open_
 
