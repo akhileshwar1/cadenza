@@ -128,7 +128,7 @@ let process_order_update
       (* else *)
         Lwt_io.printf " in order update" >>= fun () ->
         let state = (!strategy_ref).state in
-        let updated_positions = Cadenza.Position.update_or_insert_position state.positions order in
+        let updated_positions = Cadenza.Position.update_or_insert_position state.positions order "bb" in
         let updated_state = { state with positions = updated_positions } in
         strategy_ref := Cadenza.Strategy.update_state !strategy_ref updated_state;
         Lwt.return_unit

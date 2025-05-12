@@ -128,9 +128,10 @@ let generate_close_orders_for_position (option_chain : Option_chain.t) (pos : Po
     } in
     [order]
 
-let expired_close_orders (positions : Position.t list) (current_time : float) (option_chain: Option_chain.t) : Order.t list =
+let expired_close_orders (positions : Position.t list) (option_chain: Option_chain.t) : Order.t list =
   positions
-  |> List.filter (fun (pos : Position.t) -> pos.status = Open && (current_time -. pos.opened_at_epoch) >= 600.0)
+  |> List.filter (fun (pos : Position.t) -> pos.status = Open && match pos.strat_pos with
+                                                                 | Position.Bb b -> b.candles == 1) (* (current_time -. pos.opened_at_epoch) >= 600.0 *)
   |> List.concat_map (generate_close_orders_for_position option_chain)
 
 let find_nearest_strike (target : float) (option_chain : Option_chain.t) : float =
@@ -294,7 +295,7 @@ let on_event (state : 'local_state Strategy.state) (event : event) : 'local_stat
     let offset = get_offset_from_day current_time expiry_epoch in
 
     (* Close positions if 10 minutes have passed *)
-    let expired_close_orders = expired_close_orders state.positions current_time option_chain in
+    let expired_close_orders = expired_close_orders state.positions option_chain in
 
     (* Orders based on breach transitions *)
     let transition_orders =
