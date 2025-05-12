@@ -98,10 +98,10 @@ let update_or_insert_position (positions : t list) (order : Order.t) (strat_str 
           in
           let net_price, value, pnl, final_candles =
             if total_qty = 0 then
-              (0.0, 0.0, -.(total_buy_cost +. total_sell_cost), 0)
+              (0.0, 0.0, -.(total_buy_cost +. total_sell_cost), -1)
             else
               let net_price = (total_sell_cost +. total_buy_cost) /. float_of_int total_qty in
-              (net_price, float_of_int total_qty *. net_price, pos.pnl, candles + 1)
+              (net_price, float_of_int total_qty *. net_price, pos.pnl, 0) (* t2 + 15 for the close *)
           in
           let side = if total_qty > 0 then Buy else Sell in
           Printf.printf
@@ -143,10 +143,10 @@ let update_or_insert_position (positions : t list) (order : Order.t) (strat_str 
           in
           let net_price, value, pnl, final_candles =
             if total_qty = 0 then
-              (0.0, 0.0, -.(total_buy_cost +. total_sell_cost), 0)
+              (0.0, 0.0, -.(total_buy_cost +. total_sell_cost), -1)
             else
               let net_price = (total_sell_cost +. total_buy_cost) /. float_of_int total_qty in
-              (net_price, float_of_int total_qty *. net_price, pos.pnl, candles + 1)
+              (net_price, float_of_int total_qty *. net_price, pos.pnl, 0)
           in
           let side = if total_qty > 0 then Buy else Sell in
           Printf.printf
@@ -228,10 +228,15 @@ let update_positions_with_option_chain
         Printf.printf " found position symbol from option chain\n%!";
         let prev_value = pos.value in
         let value = float_of_int pos.net_qty *. data.ltp in
-        Printf.printf "Updating position of symbol %s with option chain value from %f to %f \n%!" pos.symbol prev_value value;
+        let candles = match pos.strat_pos with
+          | Bb b -> b.candles
+        in
+        Printf.printf "Updating position of symbol %s with option chain value from %f to %f and candles to %d \n%!" pos.symbol prev_value value (candles + 1);
         {
           pos with
           value;
+          strat_pos = match pos.strat_pos with
+                        | Bb _ -> Bb {candles = candles + 1}
         }
       | None ->
         Printf.printf " NO position symbol found from option chain\n%!";
