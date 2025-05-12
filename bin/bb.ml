@@ -4,6 +4,31 @@ open Lwt
 open Cadenza.Connector
 
 let mock_order_queue : string Lwt_mvar.t = Lwt_mvar.create_empty ()
+let red str = "\027[31m" ^ str ^ "\027[0m"
+let green str = "\027[32m" ^ str ^ "\027[0m"
+
+let log_position_update (pos : Cadenza.Position.t) =
+  let value = pos.value in
+  let color = if value <= 0.0 then green else red in
+  let message = Printf.sprintf "Updated Position: %s | Value: %.2f" pos.symbol value in
+  Lwt_io.printf "%s\n%!" (color message)
+
+let write_position_to_csv (pos : Cadenza.Position.t) (file : string) =
+  let oc = open_out_gen [Open_creat; Open_append; Open_text] 0o644 file in
+  let tm = Unix.localtime pos.opened_at_epoch in
+  let timestamp =
+    Printf.sprintf "%04d-%02d-%02d %02d:%02d:%02d"
+      (tm.tm_year + 1900) (tm.tm_mon + 1) tm.tm_mday
+      tm.tm_hour tm.tm_min tm.tm_sec
+  in
+  Printf.fprintf oc "%s,%s,%.2f,%d,%.2f,%.2f\n"
+    timestamp
+    pos.symbol
+    pos.net_price
+    pos.net_qty
+    pos.value
+    pos.pnl;
+  close_out oc
 
 (* Function to send a single order to the OMS via HTTP POST *)
 let send_order_to_oms (oms_uri : Uri.t) (order : Cadenza.Order.t) : unit Lwt.t =
@@ -126,12 +151,18 @@ let process_order_update
       (* if order.status <> Some Cadenza.Order.Completed then *)
       (*   Lwt.return_unit  (* Skip non-completed orders *) *)
       (* else *)
-        Lwt_io.printf " in order update" >>= fun () ->
-        let state = (!strategy_ref).state in
-        let updated_positions = Cadenza.Position.update_or_insert_position state.positions order "bb" in
-        let updated_state = { state with positions = updated_positions } in
-        strategy_ref := Cadenza.Strategy.update_state !strategy_ref updated_state;
-        Lwt.return_unit
+      Lwt_io.printf " in order update\n" >>= fun () ->
+      let state = (!strategy_ref).state in
+      let updated_positions = Cadenza.Position.update_or_insert_position state.positions order "bb" in
+      let updated_state = { state with positions = updated_positions } in
+      strategy_ref := Cadenza.Strategy.update_state !strategy_ref updated_state;
+      (* Log and write only the relevant position *)
+      (match (List.find_opt (fun (pos : Cadenza.Position.t) -> pos.symbol = order.tradingsymbol) updated_positions) with
+        | Some pos ->
+          log_position_update pos |> ignore;
+          write_position_to_csv pos "trades.csv"
+        | None -> ());
+      Lwt.return_unit
   with
     | exn ->
     Lwt_io.eprintf "Exception in process_order_update: %s\n" (Printexc.to_string exn)
