@@ -93,15 +93,13 @@ let update_or_insert_position (positions : t list) (order : Order.t) (strat_str 
           let total_buy_cost = (float_of_int pos.buy_qty *. pos.net_buy_price) +. (float_of_int qty *. price) in
           let total_sell_cost = (float_of_int pos.sell_qty *. pos.net_sell_price) in
           let new_buy_price = total_buy_cost /. float_of_int (pos.buy_qty + qty) in
-          let candles = match pos.strat_pos with
-                         | Bb b -> b.candles
-          in
-          let net_price, value, pnl, final_candles =
+          let net_price, value, pnl, final_candles, status, closed_at_epoch =
             if total_qty = 0 then
-              (0.0, 0.0, -.(total_buy_cost +. total_sell_cost), -1)
+              (0.0, 0.0, -.(total_buy_cost +. total_sell_cost), -1, Closed, now)
             else
               let net_price = (total_sell_cost +. total_buy_cost) /. float_of_int total_qty in
-              (net_price, float_of_int total_qty *. net_price, pos.pnl, 0) (* t2 + 15 for the close *)
+              (* keep on resetting the status to open because it may be followed by a Closed *)
+              (net_price, float_of_int total_qty *. net_price, pos.pnl, 0, Open, pos.closed_at_epoch) (* t2 + 15 for the close *)
           in
           let side = if total_qty > 0 then Buy else Sell in
           Printf.printf
@@ -129,6 +127,8 @@ let update_or_insert_position (positions : t list) (order : Order.t) (strat_str 
             side = side;
             opened_at_epoch = now; (* lets us handle the loading case, where close should be on t2 + 15 *)
             pnl = pnl;
+            status = status;
+            closed_at_epoch = closed_at_epoch;
             strat_pos = match pos.strat_pos with
                         | Bb _ -> Bb {candles = final_candles}
           }
@@ -137,16 +137,12 @@ let update_or_insert_position (positions : t list) (order : Order.t) (strat_str 
           let total_sell_cost = (float_of_int pos.sell_qty *. pos.net_sell_price) +. (-.float_of_int qty *. price) in
           let total_buy_cost = (float_of_int pos.buy_qty *. pos.net_buy_price) in
           let new_sell_price =  total_sell_cost /. float_of_int (pos.sell_qty - qty) in
-          let candles = match pos.strat_pos with
-                         | Bb b -> b.candles
-
-          in
-          let net_price, value, pnl, final_candles =
+          let net_price, value, pnl, final_candles, status, closed_at_epoch =
             if total_qty = 0 then
-              (0.0, 0.0, -.(total_buy_cost +. total_sell_cost), -1)
+              (0.0, 0.0, -.(total_buy_cost +. total_sell_cost), -1, Closed, now)
             else
               let net_price = (total_sell_cost +. total_buy_cost) /. float_of_int total_qty in
-              (net_price, float_of_int total_qty *. net_price, pos.pnl, 0)
+              (net_price, float_of_int total_qty *. net_price, pos.pnl, 0, Open, pos.closed_at_epoch)
           in
           let side = if total_qty > 0 then Buy else Sell in
           Printf.printf
@@ -174,18 +170,12 @@ let update_or_insert_position (positions : t list) (order : Order.t) (strat_str 
             side = side;
             opened_at_epoch = now;
             pnl = pnl;
+            status = status;
+            closed_at_epoch = closed_at_epoch;
             strat_pos = match pos.strat_pos with
                         | Bb _ -> Bb {candles = final_candles}
           }
       in
-
-      let updated_pos =
-        if updated_pos.net_qty = 0 && updated_pos.buy_qty > 0 then
-          { updated_pos with status = Closed; closed_at_epoch = now }
-        else
-          updated_pos
-      in
-
       List.rev_append acc (updated_pos :: rest)
 
     | pos :: rest ->
