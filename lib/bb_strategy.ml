@@ -329,7 +329,8 @@ let on_event (state : 'local_state Strategy.state) (event : event) : 'local_stat
         | Upper, Upper
         | Lower, Lower -> 
         Printf.printf "NO breach! %! %f %f %f \n %!" candle.lower_band candle.close_price candle.upper_band;
-        generate_upper_breach_orders ~option_chain ~candle ~offset
+        []
+        (* generate_upper_breach_orders ~option_chain ~candle ~offset *)
     in
 
     let all_orders = expired_close_orders @ transition_orders @ state.pending_orders in
