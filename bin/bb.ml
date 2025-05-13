@@ -21,13 +21,29 @@ let write_position_to_csv (pos : Cadenza.Position.t) (file : string) =
       (tm.tm_year + 1900) (tm.tm_mon + 1) tm.tm_mday
       tm.tm_hour tm.tm_min tm.tm_sec
   in
-  Printf.fprintf oc "%s,%s,%.2f,%d,%.2f,%.2f\n"
+  Printf.fprintf oc "%s,%s,%.2f,%d,%.2f,%d,%.2f,%.2f\n"
     timestamp
     pos.symbol
-    pos.net_price
-    pos.net_qty
+    pos.net_buy_price
+    pos.buy_qty
+    pos.net_sell_price
+    pos.sell_qty
     pos.value
     pos.pnl;
+  close_out oc
+
+
+let write_header_to_csv (file : string) =
+  let oc = open_out_gen [Open_creat; Open_append; Open_text] 0o644 file in
+  Printf.fprintf oc "%s,%s,%s,%s,%s,%s,%s,%s\n"
+    "timestamp"
+    "symbol"
+    "net_buy_price"
+    "buy_qty"
+    "net_sell_price"
+    "sell_qty"
+    "value"
+    "pnl";
   close_out oc
 
 (* Function to send a single order to the OMS via HTTP POST *)
@@ -160,7 +176,7 @@ let process_order_update
       (match (List.find_opt (fun (pos : Cadenza.Position.t) -> pos.symbol = order.tradingsymbol) updated_positions) with
         | Some pos ->
           log_position_update pos |> ignore;
-          write_position_to_csv pos "trades.csv"
+          write_position_to_csv pos "tradess.csv"
         | None -> ());
       Lwt.return_unit
   with
@@ -246,5 +262,7 @@ let () =
   let mock_order_feeder_promise =
     start_mock_order_feeder order_update_handler
   in
+
+  let _ = write_header_to_csv "tradess.csv" in
 
   Lwt_main.run (Lwt.join [market_data_promise; oms_update_promise; mock_order_feeder_promise])
