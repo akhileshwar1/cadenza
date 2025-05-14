@@ -50,6 +50,20 @@ let json_to_candle (json : Yojson.Safe.t) : candle =
     sma = json |> member "sma" |> to_float;
   }
 
+let is_outside_trading_window (timestamp_str : string) : bool =
+  let ist_tm =
+    Scanf.sscanf timestamp_str "%d-%d-%d %d:%d:%d"
+      (fun year mon day hour min sec ->
+        { Unix.tm_sec = sec;
+          tm_min = min;
+          tm_hour = hour;
+          tm_mday = day;
+          tm_mon = mon - 1;
+          tm_year = year - 1900;
+          tm_wday = 0; tm_yday = 0; tm_isdst = false })
+  in
+  let minutes = ist_tm.Unix.tm_hour * 60 + ist_tm.Unix.tm_min in
+  minutes < (7 * 60 + 55) || minutes >= (13 * 60 + 45)
 
 let generate_mock_option_chain candle : Option_chain.t Lwt.t =
   let spot = candle.close_price in
@@ -124,14 +138,19 @@ let generate_close_orders_for_position (option_chain : Option_chain.t) (pos : Po
       product = Order.CNC;
       validity = Order.DAY;
       status = Some Order.Pending;
-      strategy_name = "AutoClose";
+      filled_quantity = 0;
+      order_id = -1;
+      strategy_name = "bb";
     } in
     [order]
 
-let expired_close_orders (positions : Position.t list) (option_chain: Option_chain.t) : Order.t list =
+let expired_close_orders (positions : Position.t list) (option_chain: Option_chain.t) (candle_ts: string): Order.t list =
+  let is_outside = is_outside_trading_window candle_ts in
   positions
-  |> List.filter (fun (pos : Position.t) -> pos.status = Open && match pos.strat_pos with
-                                                                 | Position.Bb b -> b.candles == 1) (* (current_time -. pos.opened_at_epoch) >= 600.0 *)
+  |> List.filter (fun (pos : Position.t) -> (pos.status = Open &&
+                                             match pos.strat_pos with
+                                              | Position.Bb b -> b.candles == 2) ||
+                                            (pos.status = Open && is_outside)) (* (current_time -. pos.opened_at_epoch) >= 600.0 *)
   |> List.concat_map (generate_close_orders_for_position option_chain)
 
 let find_nearest_strike (target : float) (option_chain : Option_chain.t) : float =
@@ -294,43 +313,46 @@ let on_event (state : 'local_state Strategy.state) (event : event) : 'local_stat
     let expiry_epoch = expiry_to_epoch expiry in
     let offset = get_offset_from_day current_time expiry_epoch in
 
-    (* Close positions if 10 minutes have passed *)
-    let expired_close_orders = expired_close_orders state.positions option_chain in
-
-    (* Orders based on breach transitions *)
+    (* Close positions if 15 minutes have passed *)
+    let expired_close_orders = expired_close_orders state.positions option_chain candle.timestamp in
+    
     let transition_orders =
-      match state.local_state.last_breach, current_breach with
-      | Between, Upper ->
-        Printf.printf "in Upper breach! %! %f %f %f \n %!" candle.lower_band candle.close_price candle.upper_band;
-        generate_upper_breach_orders ~option_chain ~candle ~offset
-
-      | Between, Lower ->
-        Printf.printf "in Lower breach! %! %f %f %f \n %!" candle.lower_band candle.close_price candle.upper_band;
-        generate_lower_breach_orders ~option_chain ~candle ~offset
-
-      | Upper, Lower ->
-        Printf.printf "in Upper Lower Zig Zag! %! %f %f %f \n %!" candle.lower_band candle.close_price candle.upper_band;
-        let close =
-          state.positions
-          |> List.concat_map (generate_close_orders_for_position option_chain) in
-        let open_ = generate_lower_breach_orders ~option_chain ~candle ~offset in
-        close @ open_
-
-      | Lower, Upper ->
-        Printf.printf "in Lower Upper Zig Zag! %! %f %f %f \n %!" candle.lower_band candle.close_price candle.upper_band;
-        let close =
-          state.positions
-          |> List.concat_map (generate_close_orders_for_position option_chain) in
-        let open_ = generate_upper_breach_orders ~option_chain ~candle ~offset in
-        close @ open_
-
-      | Between, Between
-        | _, Between
-        | Upper, Upper
-        | Lower, Lower -> 
-        Printf.printf "NO breach! %! %f %f %f \n %!" candle.lower_band candle.close_price candle.upper_band;
+      if is_outside_trading_window candle.timestamp then
         []
-        (* generate_upper_breach_orders ~option_chain ~candle ~offset *)
+      else
+        (* Orders based on breach transitions *)
+        match state.local_state.last_breach, current_breach with
+        | Between, Upper ->
+          Printf.printf "in Upper breach! %! %f %f %f \n %!" candle.lower_band candle.close_price candle.upper_band;
+          generate_upper_breach_orders ~option_chain ~candle ~offset
+
+        | Between, Lower ->
+          Printf.printf "in Lower breach! %! %f %f %f \n %!" candle.lower_band candle.close_price candle.upper_band;
+          generate_lower_breach_orders ~option_chain ~candle ~offset
+
+        | Upper, Lower ->
+          Printf.printf "in Upper Lower Zig Zag! %! %f %f %f \n %!" candle.lower_band candle.close_price candle.upper_band;
+          let close =
+            state.positions
+            |> List.concat_map (generate_close_orders_for_position option_chain) in
+          let open_ = generate_lower_breach_orders ~option_chain ~candle ~offset in
+          close @ open_
+
+        | Lower, Upper ->
+          Printf.printf "in Lower Upper Zig Zag! %! %f %f %f \n %!" candle.lower_band candle.close_price candle.upper_band;
+          let close =
+            state.positions
+            |> List.concat_map (generate_close_orders_for_position option_chain) in
+          let open_ = generate_upper_breach_orders ~option_chain ~candle ~offset in
+          close @ open_
+
+        | Between, Between
+          | _, Between
+          | Upper, Upper
+          | Lower, Lower -> 
+          Printf.printf "NO breach! %! %f %f %f \n %!" candle.lower_band candle.close_price candle.upper_band;
+          []
+          (* generate_upper_breach_orders ~option_chain ~candle ~offset *)
     in
 
     let all_orders = expired_close_orders @ transition_orders @ state.pending_orders in

@@ -32,6 +32,7 @@ type t = {
   strat_pos : strat_pos;
 }
 
+(* this is position over all "completed" orders for a particular symbol, not meant for partial orders *)
 let update_or_insert_position (positions : t list) (order : Order.t) (strat_str : string) : t list =
   let symbol = order.tradingsymbol in
   let qty = order.quantity in

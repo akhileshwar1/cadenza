@@ -24,6 +24,7 @@ type status_type =
   | Pending
   | Rejected
   | Completed
+  | Partial
   | Unknown
 
 (* Conversion Functions *)
@@ -33,6 +34,7 @@ let string_to_status = function
   | "Pending" -> Pending
   | "Rejected" -> Rejected
   | "Completed" -> Completed
+  | "Partially Executed" -> Partial
   | _ -> Unknown
 
 let status_to_string = function
@@ -40,6 +42,7 @@ let status_to_string = function
   | Pending -> "Pending"
   | Rejected -> "Rejected"
   | Completed -> "Completed"
+  | Partial -> "Partially Executed"
   | Unknown -> "Unknown"
 
 (* Order Entity *)
@@ -57,6 +60,8 @@ type t = {
   status : status_type option;
   strategy_name : string;
   lot : int;
+  filled_quantity : int;
+  order_id : int;
 }
 
 (* Helper function to convert an Order.t to a Yojson.Safe.t *)
@@ -90,12 +95,14 @@ let make_order
     price;
     trigger_price = 0.0;
     side;
-    order_type = Market;
+    order_type = Limit;
     product = CNC;
     validity = DAY;
     status = Some Pending;
     lot = lots;
     strategy_name;
+    filled_quantity = 0;
+    order_id = -1;
   }
 
 let of_yojson (json : Yojson.Safe.t) : t =
@@ -129,16 +136,16 @@ let of_yojson (json : Yojson.Safe.t) : t =
       Limit
   in
 
-  let safe_product key f = 
-    try match f (json |> member key) with
-      | "MIS" -> MIS
-      | "CNC" -> CNC
-      | "NRML" -> NRML
-      | other -> Printf.printf "Unknown product '%s', defaulting to MIS\n%!" other; MIS
-    with e ->
-      Printf.printf "Error parsing '%s': %s\n%!" key (Printexc.to_string e);
-      MIS
-  in
+  (* let safe_product key f =  *)
+  (*   try match f (json |> member key) with *)
+  (*     | "MIS" -> MIS *)
+  (*     | "CNC" -> CNC *)
+  (*     | "NRML" -> NRML *)
+  (*     | other -> Printf.printf "Unknown product '%s', defaulting to MIS\n%!" other; MIS *)
+  (*   with e -> *)
+  (*     Printf.printf "Error parsing '%s': %s\n%!" key (Printexc.to_string e); *)
+  (*     MIS *)
+  (* in *)
 
   let safe_validity key f = 
     try match f (json |> member key) with
@@ -153,16 +160,18 @@ let of_yojson (json : Yojson.Safe.t) : t =
   {
     tradingsymbol = safe to_string "tradingsymbol";
     exchange = safe to_string "exchange";
-    quantity = safe to_int "quantity";
-    lot = safe to_int "quantity" / 75;
+    quantity = int_of_string (safe to_string "qty");
+    filled_quantity = int_of_string (safe to_string "qty_filled_today");
+    lot = int_of_string (safe to_string "qty") / 75;
     price = safe to_float "price";
     trigger_price = safe to_float "trigger_price";
     side = safe_match "side" to_string;
     order_type = safe_order_type "order_type" to_string;
-    product = safe_product "product" to_string;
+    product = CNC;
     validity = safe_validity "validity" to_string;
     strategy_name = (try json |> member "strategy_name" |> to_string with _ -> "");
     status = None;
+    order_id = int_of_string (safe to_string "gorderid")
   }
 
 
@@ -199,6 +208,7 @@ let to_yojson (order : t) : Yojson.Safe.t =
     "order_type", `String (string_of_order_type order.order_type);
     "product", `String (string_of_product order.product);
     "validity", `String (string_of_validity order.validity);
+    "order_id", `Int order.order_id;
   ] in
 
   let optional_fields =

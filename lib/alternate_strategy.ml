@@ -70,7 +70,9 @@ let on_event (state : 'local_state Strategy.state) (event : event) : 'local_stat
       product = Order.MIS;
       validity = Order.DAY;
       status = Some Order.Pending;
-      strategy_name = "Glitters_alternate"
+      strategy_name = "Glitters_alternate";
+      filled_quantity = 0;
+      order_id = -1;
     } in
 
     (* Update the state with new order *)
