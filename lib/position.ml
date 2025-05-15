@@ -35,8 +35,8 @@ type t = {
 (* this is position over all "completed" orders for a particular symbol, not meant for partial orders *)
 let update_or_insert_position (positions : t list) (order : Order.t) (strat_str : string) : t list =
   let symbol = order.tradingsymbol in
-  let qty = order.quantity in
-  let price = order.price in
+  let qty = order.filled_quantity in
+  let price = order.filled_price in (* since this represents the avg price that the quantity was filled at*)
   let side = order.side in
   let now = Unix.gettimeofday () in
 

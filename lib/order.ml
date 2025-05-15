@@ -61,6 +61,7 @@ type t = {
   strategy_name : string;
   lot : int;
   filled_quantity : int;
+  filled_price : float;
   order_id : int;
 }
 
@@ -102,6 +103,7 @@ let make_order
     lot = lots;
     strategy_name;
     filled_quantity = 0;
+    filled_price = 0.0;
     order_id = -1;
   }
 
@@ -161,17 +163,18 @@ let of_yojson (json : Yojson.Safe.t) : t =
     tradingsymbol = safe to_string "tradingsymbol";
     exchange = safe to_string "exchange";
     quantity = int_of_string (safe to_string "qty");
-    filled_quantity = int_of_string (safe to_string "qty_filled_today");
+    filled_quantity = int_of_string (safe to_string "filled_quantity");
     lot = int_of_string (safe to_string "qty") / 75;
     price = safe to_float "price";
+    filled_price = safe to_float "filled_price";
     trigger_price = safe to_float "trigger_price";
     side = safe_match "side" to_string;
     order_type = safe_order_type "order_type" to_string;
     product = CNC;
     validity = safe_validity "validity" to_string;
     strategy_name = (try json |> member "strategy_name" |> to_string with _ -> "");
-    status = None;
-    order_id = int_of_string (safe to_string "gorderid")
+    status = Some (string_to_status (safe to_string "status"));
+    order_id = safe to_int "order_id"
   }
 
 

@@ -72,6 +72,7 @@ let on_event (state : 'local_state Strategy.state) (event : event) : 'local_stat
       status = Some Order.Pending;
       strategy_name = "Glitters_alternate";
       filled_quantity = 0;
+      filled_price = 0.0;
       order_id = -1;
     } in
 

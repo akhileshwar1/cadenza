@@ -139,6 +139,7 @@ let generate_close_orders_for_position (option_chain : Option_chain.t) (pos : Po
       validity = Order.DAY;
       status = Some Order.Pending;
       filled_quantity = 0;
+      filled_price = 0.0;
       order_id = -1;
       strategy_name = "bb";
     } in
@@ -231,7 +232,7 @@ let generate_upper_breach_orders ~option_chain ~candle ~offset : Order.t list =
 
   let call_strike = find_nearest_strike (current_price +. offset) option_chain in
   let call_data = get_option_data option_chain expiry call_strike "CE" in
-  let call_qty = 7500 in
+  let call_qty = 750 in
   let call_lots, call_adj_qty = lots_and_quantity 75 call_qty in
   let call_delta = abs_float call_data.delta in
   let call_delta_exposure = call_delta *. float_of_int call_adj_qty in
@@ -265,7 +266,7 @@ let generate_lower_breach_orders ~option_chain ~candle ~offset : Order.t list =
 
   let put_strike = find_nearest_strike (current_price -. offset) option_chain in
   let put_data = get_option_data option_chain expiry put_strike "PE" in
-  let put_qty = 7500 in
+  let put_qty = 750 in
   let put_lots, put_adj_qty = lots_and_quantity 75 put_qty in
   let put_delta = abs_float put_data.delta in
   let put_delta_exposure = put_delta *. float_of_int put_adj_qty in
@@ -351,8 +352,8 @@ let on_event (state : 'local_state Strategy.state) (event : event) : 'local_stat
           | Upper, Upper
           | Lower, Lower -> 
           Printf.printf "NO breach! %! %f %f %f \n %!" candle.lower_band candle.close_price candle.upper_band;
-          []
-          (* generate_upper_breach_orders ~option_chain ~candle ~offset *)
+          (* [] *)
+          generate_upper_breach_orders ~option_chain ~candle ~offset
     in
 
     let all_orders = expired_close_orders @ transition_orders @ state.pending_orders in

@@ -47,7 +47,11 @@ let write_header_to_csv (file : string) =
   close_out oc
 
 (* Function to send a single order to the OMS via HTTP POST *)
-let send_order_to_oms (oms_uri : Uri.t) (order : Cadenza.Order.t) : unit Lwt.t =
+let send_order_to_oms (oms_uri : Uri.t) (order : Cadenza.Order.t)
+                      (strategy_ref : ('a, 'b) Cadenza.Strategy.t ref)
+                      : unit Lwt.t =
+
+  let state = (!strategy_ref).state in
   Lwt_io.printf "Attempting to send order: %s %s %d @ %.2f to OMS...\n"
     order.tradingsymbol
     (match order.side with | Buy -> "BUY" | Sell -> "SELL")
@@ -89,7 +93,13 @@ let send_order_to_oms (oms_uri : Uri.t) (order : Cadenza.Order.t) : unit Lwt.t =
       Lwt_io.printf "OMS Response Body: %s\n" body_string >>= fun () ->
 
       if Cohttp.Code.is_success status_int then (
-        Lwt_io.printf "Order successfully sent to OMS.\n"
+        Lwt_io.printf "Order successfully sent to OMS.\n" >>= fun () ->
+        let open Yojson.Safe.Util in
+        let json = Yojson.Safe.from_string body_string in
+        let order_id = json |> member "broker_order_id" |> to_string |> int_of_string in
+        let updated_state = {state with pending_orders = state.pending_orders @ [{order with order_id = order_id}]} in
+        strategy_ref := Cadenza.Strategy.update_state !strategy_ref updated_state;
+        Lwt.return_unit
       ) else (
         Lwt_io.eprintf "OMS returned an error status: %d %s\n" status_int status_string
       )
@@ -147,7 +157,13 @@ let create_message_handler
         (* Send extracted orders to OMS *)
         Lwt_io.printf "Extracted %d orders. Sending to OMS...\n" (List.length orders) >>= fun () ->
         Lwt_list.iter_s (fun order -> (* Use Lwt_list.iter_s for asynchronous iteration *)
-          send_order_to_oms oms_uri order (* Call the new function *)
+          (*add the liquidity call here for UAT testing. *)
+          let counter_order = 
+            match order.side with
+            | Buy -> {order with side = Sell}
+            | Sell -> {order with side = Buy} in
+               let%lwt _ = send_order_to_oms (Uri.of_string "http://localhost:9001/order/place") counter_order current_strategy_ref in
+               send_order_to_oms oms_uri order current_strategy_ref (* Call the new function *)
         ) orders
       )
       (fun exn ->
@@ -170,7 +186,8 @@ let process_order_update
     match Cadenza.Order.of_yojson json with
     | order ->
       if order.status == Some Cadenza.Order.Completed then
-        let updated_pending_orders = List.filter (fun x -> (x.order_id = order.order_id)) pending_orders in
+        Lwt_io.printf " In order completed\n" >>= fun () ->
+        let updated_pending_orders = List.filter (fun x -> not (x.order_id = order.order_id)) pending_orders in
         let updated_positions = Cadenza.Position.update_or_insert_position state.positions order "bb" in
         let updated_state = {state with completed_orders = completed_orders @ [order];
           pending_orders = updated_pending_orders;
@@ -184,15 +201,17 @@ let process_order_update
           | None -> ());
         Lwt.return_unit
       else if order.status == Some Cadenza.Order.Rejected || order.status == Some Cadenza.Order.Cancelled then
-        let updated_pending_orders = List.filter (fun x -> (x.order_id = order.order_id)) pending_orders in
+        let updated_pending_orders = List.filter (fun x -> not (x.order_id = order.order_id)) pending_orders in
         let updated_state = {state with rejected_orders = rejected_orders @ [order];
           pending_orders = updated_pending_orders} in
         strategy_ref := Cadenza.Strategy.update_state !strategy_ref updated_state;
         Lwt.return_unit
       else
-        Lwt_io.printf " in order update\n" >>= fun () ->
+        Lwt_io.printf " In order update\n" >>= fun () ->
         let updated_pending_orders = List.map (fun x -> if x.order_id == order.order_id then
           {x with filled_quantity = order.filled_quantity;
+                  filled_price = ((float_of_int x.filled_quantity) *. x.filled_price) +. ((float_of_int order.filled_quantity) *. order.filled_price)
+                                  /. ((float_of_int x.filled_quantity) +. (float_of_int order.filled_quantity));
             status = order.status}
           else
             x)
