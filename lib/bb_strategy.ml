@@ -150,7 +150,7 @@ let expired_close_orders (positions : Position.t list) (option_chain: Option_cha
   positions
   |> List.filter (fun (pos : Position.t) -> (pos.status = Open &&
                                              match pos.strat_pos with
-                                              | Position.Bb b -> b.candles == 2) ||
+                                              | Position.Bb b -> b.candles = 2) ||
                                             (pos.status = Open && is_outside)) (* (current_time -. pos.opened_at_epoch) >= 600.0 *)
   |> List.concat_map (generate_close_orders_for_position option_chain)
 
@@ -356,17 +356,17 @@ let on_event (state : 'local_state Strategy.state) (event : event) : 'local_stat
           generate_upper_breach_orders ~option_chain ~candle ~offset
     in
 
-    let all_orders = expired_close_orders @ transition_orders @ state.pending_orders in
+    let all_orders = expired_close_orders @ transition_orders @ state.created_orders in
     let positions = Position.update_positions_with_option_chain option_chain state.positions in
     let new_local_state = { last_breach = current_breach } in
-    let new_state = { state with pending_orders = all_orders; local_state = new_local_state;
+    let new_state = { state with created_orders = all_orders; local_state = new_local_state;
                       positions = positions } in
 
     Lwt.return new_state
 
 let extract_orders (state : 'local_state Strategy.state) : Order.t list * 'local_state Strategy.state =
-  let orders_to_extract = state.pending_orders in
-  let new_state = { state with pending_orders = [] } in (* Create a new state with pending_orders cleared *)
+  let orders_to_extract = state.created_orders in
+  let new_state = { state with created_orders = [] } in (* Create a new state with pending_orders cleared *)
   (orders_to_extract, new_state) (* Return the orders and the new state *)
 
 (* The final strategy packaged together *)

@@ -185,37 +185,54 @@ let process_order_update
   try
     match Cadenza.Order.of_yojson json with
     | order ->
-      if order.status == Some Cadenza.Order.Completed then
+      if order.status = Some Cadenza.Order.Completed then
         Lwt_io.printf " In order completed\n" >>= fun () ->
+        let pending_order = List.find (fun x -> x.order_id = order.order_id) pending_orders in
+        (* add this delta order update to the state we already have with regards fill price and qty *)
+        let completed_order = {pending_order with filled_quantity = pending_order.filled_quantity + order.filled_quantity;
+                                          filled_price = 
+            (((float_of_int pending_order.filled_quantity) *. pending_order.filled_price)
+              +. ((float_of_int order.filled_quantity) *. order.filled_price))
+            /.
+            ((float_of_int pending_order.filled_quantity) +. (float_of_int order.filled_quantity));
+            status = order.status;
+                              } in
+        let json = json_of_order completed_order in
+        Printf.printf " Completed Order is: %s\n%!" (Yojson.Safe.pretty_to_string json);
         let updated_pending_orders = List.filter (fun x -> not (x.order_id = order.order_id)) pending_orders in
-        let updated_positions = Cadenza.Position.update_or_insert_position state.positions order "bb" in
-        let updated_state = {state with completed_orders = completed_orders @ [order];
+        let updated_positions = Cadenza.Position.update_or_insert_position state.positions completed_order "bb" in
+        let updated_state = {state with completed_orders = completed_orders @ [completed_order];
           pending_orders = updated_pending_orders;
           positions = updated_positions} in
         strategy_ref := Cadenza.Strategy.update_state !strategy_ref updated_state;
         (* Log and write only the relevant position *)
-        (match (List.find_opt (fun (pos : Cadenza.Position.t) -> pos.symbol = order.tradingsymbol) updated_positions) with
+        (match (List.find_opt (fun (pos : Cadenza.Position.t) -> pos.symbol = completed_order.tradingsymbol) updated_positions) with
           | Some pos ->
             log_position_update pos |> ignore;
             write_position_to_csv pos "trades.csv"
           | None -> ());
         Lwt.return_unit
-      else if order.status == Some Cadenza.Order.Rejected || order.status == Some Cadenza.Order.Cancelled then
+      else if order.status = Some Cadenza.Order.Rejected || order.status = Some Cadenza.Order.Cancelled then
         let updated_pending_orders = List.filter (fun x -> not (x.order_id = order.order_id)) pending_orders in
         let updated_state = {state with rejected_orders = rejected_orders @ [order];
           pending_orders = updated_pending_orders} in
         strategy_ref := Cadenza.Strategy.update_state !strategy_ref updated_state;
         Lwt.return_unit
-      else
+      else (* handles partially executed and pending type order updates *)
         Lwt_io.printf " In order update\n" >>= fun () ->
-        let updated_pending_orders = List.map (fun x -> if x.order_id == order.order_id then
-          {x with filled_quantity = order.filled_quantity;
-                  filled_price = ((float_of_int x.filled_quantity) *. x.filled_price) +. ((float_of_int order.filled_quantity) *. order.filled_price)
-                                  /. ((float_of_int x.filled_quantity) +. (float_of_int order.filled_quantity));
+        let updated_pending_orders = List.map (fun x -> if x.order_id = order.order_id then
+          {x with filled_quantity = order.filled_quantity + x.filled_quantity;
+                  filled_price = (((float_of_int x.filled_quantity) *. x.filled_price) +. ((float_of_int order.filled_quantity) *. order.filled_price))
+                                  /.
+                                 ((float_of_int x.filled_quantity) +. (float_of_int order.filled_quantity));
             status = order.status}
           else
             x)
           pending_orders in
+
+        let pending_order = List.find (fun x -> x.order_id = order.order_id) pending_orders in
+        let json = json_of_order pending_order in
+        Printf.printf " Updated Pending Order is: %s\n%!" (Yojson.Safe.pretty_to_string json);
         let updated_state = { state with pending_orders = updated_pending_orders} in
         strategy_ref := Cadenza.Strategy.update_state !strategy_ref updated_state;
         Lwt.return_unit

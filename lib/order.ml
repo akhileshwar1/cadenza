@@ -26,6 +26,7 @@ type status_type =
   | Completed
   | Partial
   | Unknown
+  | Created
 
 (* Conversion Functions *)
 
@@ -43,6 +44,7 @@ let status_to_string = function
   | Rejected -> "Rejected"
   | Completed -> "Completed"
   | Partial -> "Partially Executed"
+  | Created -> "Created"
   | Unknown -> "Unknown"
 
 (* Order Entity *)
@@ -72,11 +74,19 @@ let json_of_order (order : t) : Yojson.Safe.t =
     ("side", `String (match order.side with | Buy -> "Buy" | Sell -> "Sell"));
     ("validity", `String (match order.validity with | DAY -> "DAY" | IOC -> "IOC"));
     ("product", `String (match order.product with | MIS -> "MIS" | CNC -> "CNC" | NRML -> "NRML"));
+    ("status", `String (match order.status with
+      | Some Completed -> "Completed"
+      | Some Pending -> "Pending" 
+      | Some Rejected -> "Rejected"
+      | Some _ -> "Unknown"
+      | None -> "Pending"));
     ("quantity", `Int order.quantity);
+    ("filled_quantity", `Int order.filled_quantity);
     ("lot", `Int order.lot);
     ("price", `Float order.price);
+    ("filled_price", `Float order.filled_price);
     ("trigger_price", `Float 0.1);
-    ("order_type", `String "Limit");
+    ("order_type", `String (match order.order_type with | Limit -> "Limit" | Market -> "Market"));
     ("exchange", `String order.exchange);
     ("strategy_name", `String order.strategy_name)
   ]
@@ -96,7 +106,7 @@ let make_order
     price;
     trigger_price = 0.0;
     side;
-    order_type = Limit;
+    order_type = Market;
     product = CNC;
     validity = DAY;
     status = Some Pending;
@@ -162,9 +172,9 @@ let of_yojson (json : Yojson.Safe.t) : t =
   {
     tradingsymbol = safe to_string "tradingsymbol";
     exchange = safe to_string "exchange";
-    quantity = int_of_string (safe to_string "qty");
-    filled_quantity = int_of_string (safe to_string "filled_quantity");
-    lot = int_of_string (safe to_string "qty") / 75;
+    quantity = safe to_int "quantity";
+    filled_quantity = safe to_int "filled_quantity";
+    lot = safe to_int "lot";
     price = safe to_float "price";
     filled_price = safe to_float "filled_price";
     trigger_price = safe to_float "trigger_price";
