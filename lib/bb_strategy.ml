@@ -125,24 +125,16 @@ let generate_close_orders_for_position (option_chain : Option_chain.t) (pos : Po
       match Position.find_option_data (Position.extract_strike pos.symbol) option_chain with
       | Some data -> data.ltp
       | None -> 0.
+    in 
+    let order : Order.t = 
+      Order.make_order 
+        ~tradingsymbol:pos.symbol
+        ~quantity:(abs adj_quantity)
+        ~lots:lots 
+        ~price:price
+        ~side:side
+        ~strategy_name:"bb"
     in
-    let order : Order.t = {
-      tradingsymbol = pos.symbol;
-      exchange = "NSE";
-      quantity = abs adj_quantity; (*quantity in order is scalar, but in position it is a vector*)
-      lot = lots;
-      price;
-      trigger_price = 0.0;
-      side;
-      order_type = Order.Market;
-      product = Order.CNC;
-      validity = Order.DAY;
-      status = Some Order.Pending;
-      filled_quantity = 0;
-      filled_price = 0.0;
-      order_id = -1;
-      strategy_name = "bb";
-    } in
     [order]
 
 let expired_close_orders (positions : Position.t list) (option_chain: Option_chain.t) (candle_ts: string): Order.t list =
@@ -247,12 +239,22 @@ let generate_upper_breach_orders ~option_chain ~candle ~offset : Order.t list =
   let put_trading_symbol = "NIFTY" ^ convert_date_to_symbol expiry ^ put_data.strike in
 
   let call_order =
-    Order.make_order ~tradingsymbol:call_trading_symbol ~quantity:call_adj_qty ~lots: call_lots
-                     ~price:call_data.ltp ~side:Order.Sell ~strategy_name:"bb"
+    Order.make_order
+      ~tradingsymbol:call_trading_symbol
+      ~quantity:call_adj_qty
+      ~lots: call_lots
+      ~price:call_data.ltp
+      ~side:Order.Sell
+      ~strategy_name:"bb"
   in
   let put_order =
-    Order.make_order ~tradingsymbol:put_trading_symbol ~quantity:put_adj_qty ~lots:put_lots
-                     ~price:put_data.ltp ~side:Order.Sell ~strategy_name:"bb"
+    Order.make_order
+      ~tradingsymbol:put_trading_symbol
+      ~quantity:put_adj_qty
+      ~lots:put_lots
+      ~price:put_data.ltp
+      ~side:Order.Sell
+      ~strategy_name:"bb"
   in
   [call_order; put_order]
 
@@ -281,12 +283,22 @@ let generate_lower_breach_orders ~option_chain ~candle ~offset : Order.t list =
   let put_trading_symbol = "NIFTY" ^ convert_date_to_symbol expiry ^ put_data.strike in
 
   let put_order =
-    Order.make_order ~tradingsymbol:put_trading_symbol ~quantity:put_adj_qty ~lots:put_lots
-                     ~price:put_data.ltp ~side:Order.Sell ~strategy_name:"bb"
+    Order.make_order
+      ~tradingsymbol:put_trading_symbol
+      ~quantity:put_adj_qty
+      ~lots:put_lots
+      ~price:put_data.ltp
+      ~side:Order.Sell
+      ~strategy_name:"bb"
   in
   let call_order =
-    Order.make_order ~tradingsymbol:call_trading_symbol ~quantity:call_adj_qty ~lots:call_lots
-                     ~price:call_data.ltp ~side:Order.Sell ~strategy_name:"bb"
+    Order.make_order
+      ~tradingsymbol:call_trading_symbol
+      ~quantity:call_adj_qty
+      ~lots:call_lots
+      ~price:call_data.ltp
+      ~side:Order.Sell
+      ~strategy_name:"bb"
   in
   [put_order; call_order]
 

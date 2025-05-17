@@ -2,6 +2,10 @@
 
 (* Basic Order Types *)
 
+let uuid = Uuidm.v4_gen (Random.State.make_self_init ())
+let generate_order_id () : string =
+  Uuidm.to_string (uuid ())
+
 type side =
   | Buy
   | Sell
@@ -64,7 +68,8 @@ type t = {
   lot : int;
   filled_quantity : int;
   filled_price : float;
-  order_id : int;
+  order_id : string;
+  broker_order_id : string;
 }
 
 (* Helper function to convert an Order.t to a Yojson.Safe.t *)
@@ -88,7 +93,9 @@ let json_of_order (order : t) : Yojson.Safe.t =
     ("trigger_price", `Float 0.1);
     ("order_type", `String (match order.order_type with | Limit -> "Limit" | Market -> "Market"));
     ("exchange", `String order.exchange);
-    ("strategy_name", `String order.strategy_name)
+    ("strategy_name", `String order.strategy_name);
+    ("order_id", `String  order.order_id);
+    ("broker_order_id", `String  order.broker_order_id)
   ]
 
 let make_order
@@ -114,7 +121,8 @@ let make_order
     strategy_name;
     filled_quantity = 0;
     filled_price = 0.0;
-    order_id = -1;
+    broker_order_id = "";
+    order_id = generate_order_id ();
   }
 
 let of_yojson (json : Yojson.Safe.t) : t =
@@ -184,7 +192,8 @@ let of_yojson (json : Yojson.Safe.t) : t =
     validity = safe_validity "validity" to_string;
     strategy_name = (try json |> member "strategy_name" |> to_string with _ -> "");
     status = Some (string_to_status (safe to_string "status"));
-    order_id = safe to_int "order_id"
+    order_id = safe to_string "order_id";
+    broker_order_id = safe to_string "broker_order_id";
   }
 
 
@@ -221,7 +230,8 @@ let to_yojson (order : t) : Yojson.Safe.t =
     "order_type", `String (string_of_order_type order.order_type);
     "product", `String (string_of_product order.product);
     "validity", `String (string_of_validity order.validity);
-    "order_id", `Int order.order_id;
+    "order_id", `String order.order_id;
+    "broker_order_id" , `String order.broker_order_id
   ] in
 
   let optional_fields =

@@ -96,8 +96,8 @@ let send_order_to_oms (oms_uri : Uri.t) (order : Cadenza.Order.t)
         Lwt_io.printf "Order successfully sent to OMS.\n" >>= fun () ->
         let open Yojson.Safe.Util in
         let json = Yojson.Safe.from_string body_string in
-        let order_id = json |> member "broker_order_id" |> to_string |> int_of_string in
-        let updated_state = {state with pending_orders = state.pending_orders @ [{order with order_id = order_id}]} in
+        let broker_order_id = json |> member "broker_order_id" |> to_string in
+        let updated_state = {state with pending_orders = state.pending_orders @ [{order with broker_order_id = broker_order_id}]} in
         strategy_ref := Cadenza.Strategy.update_state !strategy_ref updated_state;
         Lwt.return_unit
       ) else (
@@ -187,7 +187,7 @@ let process_order_update
     | order ->
       if order.status = Some Cadenza.Order.Completed then
         Lwt_io.printf " In order completed\n" >>= fun () ->
-        let pending_order = List.find (fun x -> x.order_id = order.order_id) pending_orders in
+        let pending_order = List.find (fun x -> x.broker_order_id = order.broker_order_id) pending_orders in
         (* add this delta order update to the state we already have with regards fill price and qty *)
         let completed_order = {pending_order with filled_quantity = pending_order.filled_quantity + order.filled_quantity;
                                           filled_price = 
@@ -199,7 +199,7 @@ let process_order_update
                               } in
         let json = json_of_order completed_order in
         Printf.printf " Completed Order is: %s\n%!" (Yojson.Safe.pretty_to_string json);
-        let updated_pending_orders = List.filter (fun x -> not (x.order_id = order.order_id)) pending_orders in
+        let updated_pending_orders = List.filter (fun x -> not (x.broker_order_id = order.broker_order_id)) pending_orders in
         let updated_positions = Cadenza.Position.update_or_insert_position state.positions completed_order "bb" in
         let updated_state = {state with completed_orders = completed_orders @ [completed_order];
           pending_orders = updated_pending_orders;
@@ -213,14 +213,14 @@ let process_order_update
           | None -> ());
         Lwt.return_unit
       else if order.status = Some Cadenza.Order.Rejected || order.status = Some Cadenza.Order.Cancelled then
-        let updated_pending_orders = List.filter (fun x -> not (x.order_id = order.order_id)) pending_orders in
+        let updated_pending_orders = List.filter (fun x -> not (x.broker_order_id = order.broker_order_id)) pending_orders in
         let updated_state = {state with rejected_orders = rejected_orders @ [order];
           pending_orders = updated_pending_orders} in
         strategy_ref := Cadenza.Strategy.update_state !strategy_ref updated_state;
         Lwt.return_unit
       else (* handles partially executed and pending type order updates *)
         Lwt_io.printf " In order update\n" >>= fun () ->
-        let updated_pending_orders = List.map (fun x -> if x.order_id = order.order_id then
+        let updated_pending_orders = List.map (fun x -> if x.broker_order_id = order.broker_order_id then
           {x with filled_quantity = order.filled_quantity + x.filled_quantity;
                   filled_price = (((float_of_int x.filled_quantity) *. x.filled_price) +. ((float_of_int order.filled_quantity) *. order.filled_price))
                                   /.
@@ -230,7 +230,7 @@ let process_order_update
             x)
           pending_orders in
 
-        let pending_order = List.find (fun x -> x.order_id = order.order_id) pending_orders in
+        let pending_order = List.find (fun x -> x.broker_order_id = order.broker_order_id) pending_orders in
         let json = json_of_order pending_order in
         Printf.printf " Updated Pending Order is: %s\n%!" (Yojson.Safe.pretty_to_string json);
         let updated_state = { state with pending_orders = updated_pending_orders} in

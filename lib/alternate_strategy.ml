@@ -73,7 +73,8 @@ let on_event (state : 'local_state Strategy.state) (event : event) : 'local_stat
       strategy_name = "Glitters_alternate";
       filled_quantity = 0;
       filled_price = 0.0;
-      order_id = -1;
+      broker_order_id = "";
+      order_id = ""
     } in
 
     (* Update the state with new order *)
