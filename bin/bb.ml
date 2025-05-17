@@ -188,15 +188,21 @@ let process_order_update
       if order.status = Some Cadenza.Order.Completed then
         Lwt_io.printf " In order completed\n" >>= fun () ->
         let pending_order = List.find (fun x -> x.broker_order_id = order.broker_order_id) pending_orders in
+        let total_cost x =
+         (((float_of_int x.filled_quantity) *. x.filled_price) +. ((float_of_int order.filled_quantity) *. order.filled_price)) in
+        let total_quantity x =
+         ((float_of_int x.filled_quantity) +. (float_of_int order.filled_quantity)) in
+        let update_filled_price x = total_cost x /. total_quantity x in
+        let update_order x =
+          if x.broker_order_id = order.broker_order_id then
+          {x with 
+            filled_quantity = order.filled_quantity + x.filled_quantity;
+            filled_price = update_filled_price x;
+            status = order.status}
+          else
+          x in
         (* add this delta order update to the state we already have with regards fill price and qty *)
-        let completed_order = {pending_order with filled_quantity = pending_order.filled_quantity + order.filled_quantity;
-                                          filled_price = 
-            (((float_of_int pending_order.filled_quantity) *. pending_order.filled_price)
-              +. ((float_of_int order.filled_quantity) *. order.filled_price))
-            /.
-            ((float_of_int pending_order.filled_quantity) +. (float_of_int order.filled_quantity));
-            status = order.status;
-                              } in
+        let completed_order = update_order pending_order in
         let json = json_of_order completed_order in
         Printf.printf " Completed Order is: %s\n%!" (Yojson.Safe.pretty_to_string json);
         let updated_pending_orders = List.filter (fun x -> not (x.broker_order_id = order.broker_order_id)) pending_orders in
@@ -220,16 +226,20 @@ let process_order_update
         Lwt.return_unit
       else (* handles partially executed and pending type order updates *)
         Lwt_io.printf " In order update\n" >>= fun () ->
-        let updated_pending_orders = List.map (fun x -> if x.broker_order_id = order.broker_order_id then
-          {x with filled_quantity = order.filled_quantity + x.filled_quantity;
-                  filled_price = (((float_of_int x.filled_quantity) *. x.filled_price) +. ((float_of_int order.filled_quantity) *. order.filled_price))
-                                  /.
-                                 ((float_of_int x.filled_quantity) +. (float_of_int order.filled_quantity));
+        let total_cost x =
+         (((float_of_int x.filled_quantity) *. x.filled_price) +. ((float_of_int order.filled_quantity) *. order.filled_price)) in
+        let total_quantity x =
+         ((float_of_int x.filled_quantity) +. (float_of_int order.filled_quantity)) in
+        let update_filled_price x = total_cost x /. total_quantity x in
+        let update_matching_order x =
+          if x.broker_order_id = order.broker_order_id then
+          {x with 
+            filled_quantity = order.filled_quantity + x.filled_quantity;
+            filled_price = update_filled_price x;
             status = order.status}
           else
-            x)
-          pending_orders in
-
+          x in
+        let updated_pending_orders = List.map update_matching_order pending_orders in
         let pending_order = List.find (fun x -> x.broker_order_id = order.broker_order_id) pending_orders in
         let json = json_of_order pending_order in
         Printf.printf " Updated Pending Order is: %s\n%!" (Yojson.Safe.pretty_to_string json);
