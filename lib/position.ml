@@ -180,6 +180,8 @@ let update_or_insert_position (positions : t list) (order : Order.t) (strat_str 
       List.rev_append acc (updated_pos :: rest)
 
     | pos :: rest ->
+      (* if pos.symbol <> symbol then *)
+      (*   Printf.printf "Mismatch: pos.symbol='%s' vs order.symbol='%s'\n%!" pos.symbol symbol; *)
       update_positions (pos :: acc) rest
   in
 

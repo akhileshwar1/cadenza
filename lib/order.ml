@@ -113,7 +113,7 @@ let make_order
     price;
     trigger_price = 0.0;
     side;
-    order_type = Market;
+    order_type = Limit;
     product = CNC;
     validity = DAY;
     status = Some Pending;

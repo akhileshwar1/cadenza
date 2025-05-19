@@ -165,12 +165,12 @@ let create_message_handler
         (* Send extracted orders to OMS *)
         Lwt_io.printf "Extracted %d orders. Sending to OMS...\n" (List.length orders) >>= fun () ->
         Lwt_list.iter_s (fun order -> (* Use Lwt_list.iter_s for asynchronous iteration *)
-          (*add the liquidity call here for UAT testing. *)
-          let counter_order = 
-            match order.side with
-            | Buy -> {order with side = Sell}
-            | Sell -> {order with side = Buy} in
-               let%lwt _ = send_order_to_oms (Uri.of_string "http://localhost:9001/order/place") counter_order current_strategy_ref in
+          (* add the liquidity call here for UAT testing. *)
+          (* let counter_order =  *)
+          (*   match order.side with *)
+          (*   | Buy -> {order with side = Sell} *)
+          (*   | Sell -> {order with side = Buy} in *)
+          (*      let%lwt _ = send_order_to_oms (Uri.of_string "http://localhost:9001/order/place") counter_order current_strategy_ref in *)
                send_order_to_oms oms_uri order current_strategy_ref (* Call the new function *)
         ) orders
       ))
