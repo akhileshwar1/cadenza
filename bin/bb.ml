@@ -7,6 +7,14 @@ open Cadenza.Connector
 let red str = "\027[31m" ^ str ^ "\027[0m"
 let green str = "\027[32m" ^ str ^ "\027[0m"
 
+let strategy_mutex = Lwt_mutex.create ()
+
+(* avoid race condition between on_event and order_update *)
+let safe_update f =
+  Lwt_mutex.with_lock strategy_mutex (fun () ->
+    f ()
+  )
+
 let log_position_update (pos : Cadenza.Position.t) =
   let value = pos.value in
   let color = if value <= 0.0 then green else red in
@@ -152,7 +160,7 @@ let create_message_handler
         let json = Yojson.Safe.from_string message_string in
 
         (* Process the JSON message using the specific strategy functions and get orders *)
-        process_json_message json current_strategy_ref >>= fun orders ->
+        safe_update (fun () -> process_json_message json current_strategy_ref >>= fun orders ->
 
         (* Send extracted orders to OMS *)
         Lwt_io.printf "Extracted %d orders. Sending to OMS...\n" (List.length orders) >>= fun () ->
@@ -165,7 +173,7 @@ let create_message_handler
                let%lwt _ = send_order_to_oms (Uri.of_string "http://localhost:9001/order/place") counter_order current_strategy_ref in
                send_order_to_oms oms_uri order current_strategy_ref (* Call the new function *)
         ) orders
-      )
+      ))
       (fun exn ->
         let error_msg = Printexc.to_string exn in
         Lwt_io.eprintf "Error in message handler: %s\n" error_msg >>= fun () ->
@@ -261,7 +269,7 @@ let create_order_update_handler
         let json = Yojson.Safe.from_string message_string in
 
         (* Process the JSON message using the specific strategy functions and get orders *)
-        process_order_update json current_strategy_ref 
+        safe_update (fun () -> process_order_update json current_strategy_ref)
       )
       (fun exn ->
         let error_msg = Printexc.to_string exn in
@@ -293,7 +301,6 @@ let () =
   let oms_uri = Uri.of_string config.oms_layer_uri in
   let strategy = Cadenza.Bb_strategy.create config in
   let current_strategy = ref strategy in
-
   (* Create the message handler using the OMS URI and the specific strategy ref *)
   let message_handler =
     create_message_handler
