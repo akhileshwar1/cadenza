@@ -240,3 +240,24 @@ let to_yojson (order : t) : Yojson.Safe.t =
   in
 
   `Assoc (base_fields @ optional_fields)
+
+let total_cost order1 order2 =
+  (((float_of_int order1.filled_quantity) *. order1.filled_price) +. ((float_of_int order2.filled_quantity) *. order2.filled_price))
+
+let total_quantity order1 order2 =
+  ((float_of_int order1.filled_quantity) +. (float_of_int order2.filled_quantity))
+
+let update_filled_price_and_quantity order1 order2 =
+  let updated_quantity = total_quantity order1 order2 in
+  let updated_filled_price = total_cost order1 order2 /. updated_quantity in
+  (updated_filled_price, int_of_float updated_quantity)
+
+let apply_order_update order_update order =
+  if order.broker_order_id = order_update.broker_order_id then
+    let updated_filled_price, updated_quantity = update_filled_price_and_quantity order order_update in
+    {order with 
+      filled_quantity = updated_quantity;
+      filled_price = updated_filled_price;
+      status = order_update.status}
+  else
+    order
