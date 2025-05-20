@@ -136,13 +136,11 @@ let generate_close_orders_for_position (option_chain : Option_chain.t) (pos : Po
     in
     [order]
 
-let expired_close_orders (positions : Position.t list) (option_chain: Option_chain.t) (candle_ts: string): Order.t list =
-  let is_outside = is_outside_trading_window candle_ts in
+let expired_close_orders (positions : Position.t list) (option_chain: Option_chain.t) : Order.t list =
   positions
   |> List.filter (fun (pos : Position.t) -> (pos.status = Open &&
                                              match pos.strat_pos with
-                                              | Position.Bb b -> b.candles = 2) ||
-                                            (pos.status = Open && is_outside)) (* (current_time -. pos.opened_at_epoch) >= 600.0 *)
+                                              | Position.Bb b -> b.candles = 2)) (* (current_time -. pos.opened_at_epoch) >= 600.0 *)
   |> List.concat_map (generate_close_orders_for_position option_chain)
 
 let find_nearest_strike (target : float) (option_chain : Option_chain.t) : float =
@@ -326,8 +324,9 @@ let on_event (state : 'local_state Strategy.state) (event : event) : 'local_stat
     let offset = get_offset_from_day current_time expiry_epoch in
 
     (* Close positions if 15 minutes have passed *)
-    let expired_close_orders = expired_close_orders state.positions option_chain candle.timestamp in
-    
+    let expired_close_orders = expired_close_orders state.positions option_chain in
+   
+    (* Don't open a new position outside the trading window *)
     let transition_orders =
       if is_outside_trading_window candle.timestamp then
         []
