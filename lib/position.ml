@@ -32,150 +32,146 @@ type t = {
   strat_pos : strat_pos;
 }
 
-(* this is position over all "completed" orders for a particular symbol, not meant for partial orders *)
-let update_or_insert_position (positions : t list) (order : Order.t) (strat_str : string) : t list =
+let open_position_from_order (order : Order.t) (strat_str : string) : t =
   let symbol = order.tradingsymbol in
   let qty = order.filled_quantity in
   let price = order.filled_price in (* since this represents the avg price that the quantity was filled at*)
   let side = order.side in
   let now = Unix.gettimeofday () in
+  Printf.printf "Adding new position for symbol %s with price %f and qty %d \n%!" symbol price qty;
+  {
+    opened_at_epoch = now;
+    closed_at_epoch = 0.0;
+    symbol;
+    buy_qty = (match side with | Buy -> qty | Sell -> 0);
+    sell_qty = (match side with | Buy -> 0 | Sell -> -qty);
+    net_buy_price = (match side with | Buy -> price | Sell -> 0.0);
+    net_sell_price = (match side with | Buy -> 0.0 | Sell -> price);
+    side = (match side with | Buy -> Buy | Sell -> Sell);
+    net_qty = (match side with | Buy -> qty | Sell -> -qty);
+    net_price = price;
+    value = (match side with | Buy -> float_of_int qty *. price | Sell -> -.float_of_int qty *. price);
+    status = Open;
+    pnl = 0.0;
+    strat_pos = match strat_str with
+      | "bb" -> Bb {candles = 0}
+      | _ -> Bb {candles = 0};
+  }
 
+let update_position_from_buy_order (pos : t) (order : Order.t) : t =
+  let symbol = order.tradingsymbol in
+  let qty = order.filled_quantity in
+  let price = order.filled_price in (* since this represents the avg price that the quantity was filled at*)
+  let now = Unix.gettimeofday () in
+  let total_qty = pos.net_qty + qty in
+  let total_buy_cost = (float_of_int pos.buy_qty *. pos.net_buy_price) +. (float_of_int qty *. price) in
+  let total_sell_cost = (float_of_int pos.sell_qty *. pos.net_sell_price) in
+  let new_buy_price = total_buy_cost /. float_of_int (pos.buy_qty + qty) in
+  let net_price, value, pnl, final_candles, status, closed_at_epoch =
+    if total_qty = 0 then
+      (0.0, 0.0, -.(total_buy_cost +. total_sell_cost), -1, Closed, now)
+    else
+      let net_price = (total_sell_cost +. total_buy_cost) /. float_of_int total_qty in
+      (* keep on resetting the status to open because it may be followed by a Closed *)
+      (net_price, float_of_int total_qty *. net_price, pos.pnl, 0, Open, pos.closed_at_epoch) (* t2 + 15 for the close *)
+  in
+  let side = if total_qty > 0 then Buy else Sell in
+  Printf.printf
+    "Updating position for symbol %s at price %f:\n\
+             - net_price: %.2f -> %.2f\n\
+             - net_qty: %.2d\n\
+             - side: %s\n\
+             - value: %.2f -> %.2f\n\
+             - pnl: %.2f\n%!"
+    symbol
+    price
+    pos.net_price
+    net_price
+    total_qty
+    "BUY"
+    pos.value
+    value
+    pnl;
+  { pos with
+    buy_qty = pos.buy_qty + qty;
+    net_qty = total_qty;
+    net_buy_price = new_buy_price;
+    net_price = net_price;
+    value = value; 
+    side = side;
+    opened_at_epoch = now; (* lets us handle the loading case, where close should be on t2 + 15 *)
+    pnl = pnl;
+    status = status;
+    closed_at_epoch = closed_at_epoch;
+    strat_pos = match pos.strat_pos with
+      | Bb _ -> Bb {candles = final_candles}
+  }
+
+let update_position_from_sell_order (pos : t) (order : Order.t) : t =
+  let symbol = order.tradingsymbol in
+  let qty = order.filled_quantity in
+  let price = order.filled_price in (* since this represents the avg price that the quantity was filled at*)
+  let now = Unix.gettimeofday () in
+  let total_qty = pos.net_qty - qty in
+  let total_sell_cost = (float_of_int pos.sell_qty *. pos.net_sell_price) +. (-.float_of_int qty *. price) in
+  let total_buy_cost = (float_of_int pos.buy_qty *. pos.net_buy_price) in
+  let new_sell_price =  total_sell_cost /. float_of_int (pos.sell_qty - qty) in
+  let net_price, value, pnl, final_candles, status, closed_at_epoch =
+    if total_qty = 0 then
+      (0.0, 0.0, -.(total_buy_cost +. total_sell_cost), -1, Closed, now)
+    else
+      let net_price = (total_sell_cost +. total_buy_cost) /. float_of_int total_qty in
+      (net_price, float_of_int total_qty *. net_price, pos.pnl, 0, Open, pos.closed_at_epoch)
+  in
+  let side = if total_qty > 0 then Buy else Sell in
+  Printf.printf
+    "Updating position for symbol %s at price %f:\n\
+             - net_price: %.2f -> %.2f\n\
+             - net_qty: %.2d\n\
+             - side: %s\n\
+             - value: %.2f -> %.2f\n\
+             - pnl: %.2f\n%!"
+    symbol
+    price
+    pos.net_price
+    net_price
+    total_qty
+    "SELL"
+    pos.value
+    value
+    pnl;
+  { pos with
+    sell_qty = pos.sell_qty - qty;
+    net_qty = total_qty;
+    net_sell_price = new_sell_price;
+    net_price = net_price;
+    value = value;
+    side = side;
+    opened_at_epoch = now;
+    pnl = pnl;
+    status = status;
+    closed_at_epoch = closed_at_epoch;
+    strat_pos = match pos.strat_pos with
+      | Bb _ -> Bb {candles = final_candles}
+  }
+
+(* this is position over all "completed" orders for a particular symbol, not meant for partial orders *)
+let update_or_insert_position (positions : t list) (order : Order.t) (strat_str : string) : t list =
+  let symbol = order.tradingsymbol in
+  let side = order.side in
   let rec update_positions acc = function
     | [] ->
-      Printf.printf "Adding new position for symbol %s with price %f and qty %d \n%!" symbol price qty;
-      let new_position =
-        match side with
-        | Buy ->
-          {
-            opened_at_epoch = now;
-            closed_at_epoch = 0.0;
-            symbol;
-            buy_qty = qty;
-            sell_qty = 0;
-            net_buy_price = price;
-            net_sell_price = 0.0;
-            side = Buy;
-            net_qty = qty;
-            net_price = price;
-            value = float_of_int qty *. price;
-            status = Open;
-            pnl = 0.0;
-            strat_pos = match strat_str with
-              | "bb" -> Bb {candles = 0}
-              | _ -> Bb {candles = 0};
-          }
-        | Sell ->
-          {
-            opened_at_epoch = now;
-            closed_at_epoch = 0.0;
-            symbol;
-            buy_qty = 0;
-            sell_qty = -qty;
-            net_buy_price = 0.0;
-            net_sell_price = price;
-            net_price = price;
-            side = Sell;
-            net_qty = - qty;
-            value = -.float_of_int qty *. price;
-            status = Open;
-            pnl = 0.0;
-            strat_pos = match strat_str with
-              | "bb" -> Bb {candles = 0}
-              | _ -> Bb {candles = 0};
-          }
-      in
+      let new_position = open_position_from_order order strat_str in
       List.rev (new_position :: acc)
 
     | pos :: rest when pos.symbol = symbol ->
       let updated_pos =
         match side with
         | Buy ->
-          let total_qty = pos.net_qty + qty in
-          let total_buy_cost = (float_of_int pos.buy_qty *. pos.net_buy_price) +. (float_of_int qty *. price) in
-          let total_sell_cost = (float_of_int pos.sell_qty *. pos.net_sell_price) in
-          let new_buy_price = total_buy_cost /. float_of_int (pos.buy_qty + qty) in
-          let net_price, value, pnl, final_candles, status, closed_at_epoch =
-            if total_qty = 0 then
-              (0.0, 0.0, -.(total_buy_cost +. total_sell_cost), -1, Closed, now)
-            else
-              let net_price = (total_sell_cost +. total_buy_cost) /. float_of_int total_qty in
-              (* keep on resetting the status to open because it may be followed by a Closed *)
-              (net_price, float_of_int total_qty *. net_price, pos.pnl, 0, Open, pos.closed_at_epoch) (* t2 + 15 for the close *)
-          in
-          let side = if total_qty > 0 then Buy else Sell in
-          Printf.printf
-            "Updating position for symbol %s at price %f:\n\
-             - net_price: %.2f -> %.2f\n\
-             - net_qty: %.2d\n\
-             - side: %s\n\
-             - value: %.2f -> %.2f\n\
-             - pnl: %.2f\n%!"
-            symbol
-            price
-            pos.net_price
-            net_price
-            total_qty
-            "BUY"
-            pos.value
-            value
-            pnl;
-          { pos with
-            buy_qty = pos.buy_qty + qty;
-            net_qty = total_qty;
-            net_buy_price = new_buy_price;
-            net_price = net_price;
-            value = value; 
-            side = side;
-            opened_at_epoch = now; (* lets us handle the loading case, where close should be on t2 + 15 *)
-            pnl = pnl;
-            status = status;
-            closed_at_epoch = closed_at_epoch;
-            strat_pos = match pos.strat_pos with
-                        | Bb _ -> Bb {candles = final_candles}
-          }
+          update_position_from_buy_order pos order
+
         | Sell ->
-          let total_qty = pos.net_qty - qty in
-          let total_sell_cost = (float_of_int pos.sell_qty *. pos.net_sell_price) +. (-.float_of_int qty *. price) in
-          let total_buy_cost = (float_of_int pos.buy_qty *. pos.net_buy_price) in
-          let new_sell_price =  total_sell_cost /. float_of_int (pos.sell_qty - qty) in
-          let net_price, value, pnl, final_candles, status, closed_at_epoch =
-            if total_qty = 0 then
-              (0.0, 0.0, -.(total_buy_cost +. total_sell_cost), -1, Closed, now)
-            else
-              let net_price = (total_sell_cost +. total_buy_cost) /. float_of_int total_qty in
-              (net_price, float_of_int total_qty *. net_price, pos.pnl, 0, Open, pos.closed_at_epoch)
-          in
-          let side = if total_qty > 0 then Buy else Sell in
-          Printf.printf
-            "Updating position for symbol %s at price %f:\n\
-             - net_price: %.2f -> %.2f\n\
-             - net_qty: %.2d\n\
-             - side: %s\n\
-             - value: %.2f -> %.2f\n\
-             - pnl: %.2f\n%!"
-            symbol
-            price
-            pos.net_price
-            net_price
-            total_qty
-            "SELL"
-            pos.value
-            value
-            pnl;
-          { pos with
-            sell_qty = pos.sell_qty - qty;
-            net_qty = total_qty;
-            net_sell_price = new_sell_price;
-            net_price = net_price;
-            value = value;
-            side = side;
-            opened_at_epoch = now;
-            pnl = pnl;
-            status = status;
-            closed_at_epoch = closed_at_epoch;
-            strat_pos = match pos.strat_pos with
-                        | Bb _ -> Bb {candles = final_candles}
-          }
+          update_position_from_sell_order pos order
       in
       List.rev_append acc (updated_pos :: rest)
 
