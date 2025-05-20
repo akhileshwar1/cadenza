@@ -99,7 +99,6 @@ let generate_mock_option_chain candle : Option_chain.t Lwt.t =
   let result : Option_chain.t = [(expiry, options)] in
   Lwt.return result
 
-
 (* Convert JSON to event *)
 let json_to_event (json : Yojson.Safe.t) : event =
   let candle = json_to_candle json in
@@ -364,8 +363,8 @@ let on_event (state : 'local_state Strategy.state) (event : event) : 'local_stat
           | Upper, Upper
           | Lower, Lower -> 
           Printf.printf "NO breach! %! %f %f %f \n %!" candle.lower_band candle.close_price candle.upper_band;
-          (* [] *)
-          generate_upper_breach_orders ~option_chain ~candle ~offset
+          []
+          (* generate_upper_breach_orders ~option_chain ~candle ~offset *)
     in
 
     let all_orders = expired_close_orders @ transition_orders @ state.created_orders in
