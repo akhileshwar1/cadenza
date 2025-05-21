@@ -71,7 +71,7 @@ let parse (json : Yojson.Safe.t) : t =
 
 
 let get () : t Lwt.t =
-  let uri = Uri.of_string "http://localhost:8000/option-chain?symbol=NSE:NIFTY50-INDEX" in
+  let uri = Uri.of_string (Connector.get_env_or_default "OPT_CHAIN_URI" "http://localhost:8000/option-chain?symbol=NSE:NIFTY50-INDEX") in
   Client.get uri >>= fun (_, body) ->
   body |> Cohttp_lwt.Body.to_string >|= fun body_str ->
   (* Printf.printf "body is %s\n%!" body_str; *)

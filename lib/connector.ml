@@ -11,6 +11,12 @@ open Websocket_lwt_unix
 (* open Cohttp *)
 (* open Cohttp_lwt_unix *)
 
+(* loads env var from the environment the process is running under *)
+let get_env_or_default var_name default =
+  match Sys.getenv_opt var_name with
+  | Some value -> value
+  | None -> default
+
 (* Instantiate the Resolver functor with Cohttp_lwt_unix.IO *)
 module R = Resolver.Make(Cohttp_lwt_unix.IO)
 

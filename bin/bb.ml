@@ -237,9 +237,9 @@ let create_order_update_handler
 let () =
   (* Build config *)
   let config = {
-    Cadenza.Strategy.data_layer_uri = "ws://127.0.0.1:8000/candles/stream";
-    oms_layer_uri = "http://localhost:9000/order/place";
-    oms_ws_uri = "ws://localhost:8081/";
+    Cadenza.Strategy.data_layer_uri = Cadenza.Connector.get_env_or_default "DATA_LAYER_URI" "ws://127.0.0.1:8000/candles/stream";
+    oms_layer_uri = Cadenza.Connector.get_env_or_default "OMS_LAYER_URI" "http://localhost:9000/order/place";
+    oms_ws_uri = Cadenza.Connector.get_env_or_default "OMS_WS_URI" "ws://localhost:8081/";
     symbol = "NIFTY";
     local_config = ();
   } in
