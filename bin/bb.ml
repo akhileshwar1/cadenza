@@ -18,41 +18,14 @@ let safe_update f =
 let log_position_update (pos : Cadenza.Position.t) =
   let value = pos.value in
   let color = if value <= 0.0 then green else red in
-  let message = Printf.sprintf "Updated Position: %s | Value: %.2f" pos.symbol value in
-  Lwt_io.printf "%s\n%!" (color message)
-
-let write_position_to_csv (pos : Cadenza.Position.t) (file : string) =
-  let oc = open_out_gen [Open_creat; Open_append; Open_text] 0o644 file in
-  let tm = Unix.localtime pos.opened_at_epoch in
-  let timestamp =
-    Printf.sprintf "%04d-%02d-%02d %02d:%02d:%02d"
-      (tm.tm_year + 1900) (tm.tm_mon + 1) tm.tm_mday
-      tm.tm_hour tm.tm_min tm.tm_sec
+  let message =
+    Printf.sprintf "Updated Position: %s | Net_price: %.2f | Qty: %d | Value: %.2f"
+      pos.symbol
+      pos.net_price
+      pos.net_qty
+      value
   in
-  Printf.fprintf oc "%s,%s,%.2f,%d,%.2f,%d,%.2f,%.2f\n"
-    timestamp
-    pos.symbol
-    pos.net_buy_price
-    pos.buy_qty
-    pos.net_sell_price
-    pos.sell_qty
-    pos.value
-    pos.pnl;
-  close_out oc
-
-
-let write_header_to_csv (file : string) =
-  let oc = open_out_gen [Open_creat; Open_append; Open_text] 0o644 file in
-  Printf.fprintf oc "%s,%s,%s,%s,%s,%s,%s,%s\n"
-    "timestamp"
-    "symbol"
-    "net_buy_price"
-    "buy_qty"
-    "net_sell_price"
-    "sell_qty"
-    "value"
-    "pnl";
-  close_out oc
+  Lwt_io.printf "%s\n%!" (color message)
 
 (* Function to send a single order to the OMS via HTTP POST *)
 let send_order_to_oms (oms_uri : Uri.t) (order : Cadenza.Order.t)
@@ -210,7 +183,7 @@ let process_order_update
         (match (List.find_opt (fun (pos : Cadenza.Position.t) -> pos.symbol = completed_order.tradingsymbol) updated_positions) with
           | Some pos ->
             log_position_update pos |> ignore;
-            write_position_to_csv pos "trades.csv"
+            Cadenza.Bb_strategy.write_position_to_csv "positions.csv" pos
           | None -> ());
         Lwt.return_unit
       else if order.status = Some Cadenza.Order.Rejected || order.status = Some Cadenza.Order.Cancelled then
@@ -310,7 +283,6 @@ let () =
   (* let mock_order_feeder_promise = *)
   (*   start_mock_order_feeder order_update_handler *)
   (* in *)
-
-  let _ = write_header_to_csv "trades.csv" in
-
+  
+  Cadenza.Bb_strategy.write_header_to_csv "positions.csv";
   Lwt_main.run (Lwt.join [market_data_promise; oms_update_promise(* ; mock_order_feeder_promise *)])

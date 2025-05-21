@@ -36,6 +36,38 @@ let initial_local_state = {
   last_breach = Between;
 }
 
+let write_header_to_csv (file : string) =
+  let oc = open_out_gen [Open_creat; Open_append; Open_text] 0o644 file in
+  Printf.fprintf oc "%s,%s,%s,%s,%s,%s,%s,%s\n"
+    "timestamp"
+    "symbol"
+    "net_buy_price"
+    "buy_qty"
+    "net_sell_price"
+    "sell_qty"
+    "value"
+    "pnl";
+  close_out oc
+
+let write_position_to_csv (file : string) (pos : Position.t) =
+  let oc = open_out_gen [Open_creat; Open_append; Open_text] 0o644 file in
+  let tm = Unix.localtime pos.opened_at_epoch in
+  let timestamp =
+    Printf.sprintf "%04d-%02d-%02d %02d:%02d:%02d"
+      (tm.tm_year + 1900) (tm.tm_mon + 1) tm.tm_mday
+      tm.tm_hour tm.tm_min tm.tm_sec
+  in
+  Printf.fprintf oc "%s,%s,%.2f,%d,%.2f,%d,%.2f,%.2f\n"
+    timestamp
+    pos.symbol
+    pos.net_buy_price
+    pos.buy_qty
+    pos.net_sell_price
+    pos.sell_qty
+    pos.value
+    pos.pnl;
+  close_out oc
+
 (* Convert JSON to candle type *)
 let json_to_candle (json : Yojson.Safe.t) : candle =
   let open Yojson.Safe.Util in
@@ -64,6 +96,22 @@ let is_outside_trading_window (timestamp_str : string) : bool =
   in
   let minutes = ist_tm.Unix.tm_hour * 60 + ist_tm.Unix.tm_min in
   minutes < (7 * 60 + 55) || minutes >= (13 * 60 + 45)
+
+let is_time (timestamp_str : string) (mins_time : int) : bool =
+  let ist_tm =
+    Scanf.sscanf timestamp_str "%d-%d-%d %d:%d:%d"
+      (fun year mon day hour min sec ->
+        { Unix.tm_sec = sec;
+          tm_min = min;
+          tm_hour = hour;
+          tm_mday = day;
+          tm_mon = mon - 1;
+          tm_year = year - 1900;
+          tm_wday = 0; tm_yday = 0; tm_isdst = false })
+  in
+  let minutes = ist_tm.Unix.tm_hour * 60 + ist_tm.Unix.tm_min in
+  minutes = mins_time
+  (* (13 * 60 + 55) (* 3:25 pm IST *) *)
 
 let generate_mock_option_chain candle : Option_chain.t Lwt.t =
   let spot = candle.close_price in
@@ -141,6 +189,11 @@ let expired_close_orders (positions : Position.t list) (option_chain: Option_cha
   |> List.filter (fun (pos : Position.t) -> (pos.status = Open &&
                                              match pos.strat_pos with
                                               | Position.Bb b -> b.candles = 2)) (* (current_time -. pos.opened_at_epoch) >= 600.0 *)
+  |> List.concat_map (generate_close_orders_for_position option_chain)
+
+let close_all_open_orders (positions : Position.t list) (option_chain: Option_chain.t) : Order.t list =
+  positions
+  |> List.filter (fun (pos : Position.t) -> pos.status = Open) (* (current_time -. pos.opened_at_epoch) >= 600.0 *)
   |> List.concat_map (generate_close_orders_for_position option_chain)
 
 let find_nearest_strike (target : float) (option_chain : Option_chain.t) : float =
@@ -302,6 +355,7 @@ let generate_lower_breach_orders ~option_chain ~candle ~offset : Order.t list =
 (* Process the event and transform the state *)
 let on_event (state : 'local_state Strategy.state) (event : event) : 'local_state Strategy.state Lwt.t =
   (* Replace mock with actual async call to option chain *)
+  
   match event with
   | Market_data_event candle ->
 
@@ -366,13 +420,27 @@ let on_event (state : 'local_state Strategy.state) (event : event) : 'local_stat
           (* generate_upper_breach_orders ~option_chain ~candle ~offset *)
     in
 
-    let all_orders = expired_close_orders @ transition_orders @ state.created_orders in
+    (* close all open orders, don't want no open positions into the night, for the night is dark *)
+    let close_time_orders =
+      if is_time candle.timestamp (13 * 60 + 55) then (* 5 mins before day close *)
+        close_all_open_orders state.positions option_chain
+      else
+        [] in
+
+    let all_orders = expired_close_orders @ transition_orders @ state.created_orders @ close_time_orders in
     let positions = Position.update_positions_with_option_chain option_chain state.positions in
     let new_local_state = { last_breach = current_breach } in
     let new_state = { state with created_orders = all_orders; local_state = new_local_state;
                       positions = positions } in
 
-    Lwt.return new_state
+    (* write all positions to csv at the end, hopefully all of them are closed. *)
+    if is_time candle.timestamp (14 * 60) then (
+      write_header_to_csv "pnl.csv";
+      List.iter (fun pos -> write_position_to_csv "pnl.csv" pos) state.positions;
+      Lwt.return new_state
+    ) else
+      Lwt.return new_state
+
 
 let extract_orders (state : 'local_state Strategy.state) : Order.t list * 'local_state Strategy.state =
   let orders_to_extract = state.created_orders in
