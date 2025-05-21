@@ -184,6 +184,7 @@ let generate_close_orders_for_position (option_chain : Option_chain.t) (pos : Po
     in
     [order]
 
+(* close orders after 15 minutes/on the 3rd candle *)
 let expired_close_orders (positions : Position.t list) (option_chain: Option_chain.t) : Order.t list =
   positions
   |> List.filter (fun (pos : Position.t) -> (pos.status = Open &&
@@ -191,6 +192,7 @@ let expired_close_orders (positions : Position.t list) (option_chain: Option_cha
                                               | Position.Bb b -> b.candles = 2)) (* (current_time -. pos.opened_at_epoch) >= 600.0 *)
   |> List.concat_map (generate_close_orders_for_position option_chain)
 
+(* used in cases where you want to make sure you are not carrying a position overnight *)
 let close_all_open_orders (positions : Position.t list) (option_chain: Option_chain.t) : Order.t list =
   positions
   |> List.filter (fun (pos : Position.t) -> pos.status = Open) (* (current_time -. pos.opened_at_epoch) >= 600.0 *)
@@ -352,86 +354,97 @@ let generate_lower_breach_orders ~option_chain ~candle ~offset : Order.t list =
   in
   [put_order; call_order]
 
+let transition_orders ~current_breach ~last_breach ~candle ~option_chain ~offset ~positions =
+  if is_outside_trading_window candle.timestamp then
+    []
+  else
+    (* Orders based on breach transitions *)
+    match last_breach, current_breach with
+    | Between, Upper ->
+      Printf.printf "in Upper breach! %! %f %f %f \n %!" candle.lower_band candle.close_price candle.upper_band;
+      generate_upper_breach_orders ~option_chain ~candle ~offset
+
+    | Between, Lower ->
+      Printf.printf "in Lower breach! %! %f %f %f \n %!" candle.lower_band candle.close_price candle.upper_band;
+      generate_lower_breach_orders ~option_chain ~candle ~offset
+
+    | Upper, Lower ->
+      Printf.printf "in Upper Lower Zig Zag! %! %f %f %f \n %!" candle.lower_band candle.close_price candle.upper_band;
+      let close =
+        positions
+        |> List.concat_map (generate_close_orders_for_position option_chain) in
+      let open_ = generate_lower_breach_orders ~option_chain ~candle ~offset in
+      close @ open_
+
+    | Lower, Upper ->
+      Printf.printf "in Lower Upper Zig Zag! %! %f %f %f \n %!" candle.lower_band candle.close_price candle.upper_band;
+      let close =
+        positions
+        |> List.concat_map (generate_close_orders_for_position option_chain) in
+      let open_ = generate_upper_breach_orders ~option_chain ~candle ~offset in
+      close @ open_
+
+    | Between, Between
+      | _, Between
+      | Upper, Upper
+      | Lower, Lower -> 
+      Printf.printf "NO breach! %! %f %f %f \n %!" candle.lower_band candle.close_price candle.upper_band;
+      []
+(* generate_upper_breach_orders ~option_chain ~candle ~offset *)
+
+(* close all open orders, don't want no open positions into the night, for the night is dark *)
+let close_time_orders ~candle ~positions ~option_chain =
+  if is_time candle.timestamp (13 * 60 + 55) then (* 5 mins before day close *)
+    close_all_open_orders positions option_chain
+  else
+    []
+
+let get_breach_type ~candle =
+  if candle.close_price > candle.upper_band then Upper
+  else if candle.close_price < candle.lower_band then Lower
+  else Between
+
+let current_expiry_from_option_chain ~option_chain =
+  match option_chain with
+  | first:: _ -> fst first (*takes the expiry out of (expiry, strikes) pair *)
+  | [] -> ""
+
 (* Process the event and transform the state *)
 let on_event (state : 'local_state Strategy.state) (event : event) : 'local_state Strategy.state Lwt.t =
-  (* Replace mock with actual async call to option chain *)
-  
   match event with
   | Market_data_event candle ->
-
     let%lwt option_chain = Option_chain.get () in
     let current_time = Unix.gettimeofday () in
-
-    (* Determine current breach status *)
     let current_breach =
-      if candle.close_price > candle.upper_band then Upper
-      else if candle.close_price < candle.lower_band then Lower
-      else Between
+      get_breach_type ~candle:candle
     in
-    let expiry =  (* Cornerstone: we are assuming the option_chain will always have the expiry to be worked upon *)
-      match option_chain with
-      | first:: _ -> fst first (*takes the expiry out of (expiry, strikes) pair *)
-      | [] -> ""
-    in
-    (* let expiry = state.local_state.expiry in *)
+    (* Cornerstone: we are assuming the option_chain will always have the expiry to be worked upon *)
+    let expiry = current_expiry_from_option_chain ~option_chain:option_chain in 
     let expiry_epoch = expiry_to_epoch expiry in
     let offset = get_offset_from_day current_time expiry_epoch in
-
-    (* Close positions if 15 minutes have passed *)
     let expired_close_orders = expired_close_orders state.positions option_chain in
-   
-    (* Don't open a new position outside the trading window *)
-    let transition_orders =
-      if is_outside_trading_window candle.timestamp then
-        []
-      else
-        (* Orders based on breach transitions *)
-        match state.local_state.last_breach, current_breach with
-        | Between, Upper ->
-          Printf.printf "in Upper breach! %! %f %f %f \n %!" candle.lower_band candle.close_price candle.upper_band;
-          generate_upper_breach_orders ~option_chain ~candle ~offset
-
-        | Between, Lower ->
-          Printf.printf "in Lower breach! %! %f %f %f \n %!" candle.lower_band candle.close_price candle.upper_band;
-          generate_lower_breach_orders ~option_chain ~candle ~offset
-
-        | Upper, Lower ->
-          Printf.printf "in Upper Lower Zig Zag! %! %f %f %f \n %!" candle.lower_band candle.close_price candle.upper_band;
-          let close =
-            state.positions
-            |> List.concat_map (generate_close_orders_for_position option_chain) in
-          let open_ = generate_lower_breach_orders ~option_chain ~candle ~offset in
-          close @ open_
-
-        | Lower, Upper ->
-          Printf.printf "in Lower Upper Zig Zag! %! %f %f %f \n %!" candle.lower_band candle.close_price candle.upper_band;
-          let close =
-            state.positions
-            |> List.concat_map (generate_close_orders_for_position option_chain) in
-          let open_ = generate_upper_breach_orders ~option_chain ~candle ~offset in
-          close @ open_
-
-        | Between, Between
-          | _, Between
-          | Upper, Upper
-          | Lower, Lower -> 
-          Printf.printf "NO breach! %! %f %f %f \n %!" candle.lower_band candle.close_price candle.upper_band;
-          []
-          (* generate_upper_breach_orders ~option_chain ~candle ~offset *)
-    in
-
-    (* close all open orders, don't want no open positions into the night, for the night is dark *)
+    let transition_orders = 
+      transition_orders
+        ~current_breach:current_breach
+        ~last_breach:state.local_state.last_breach
+        ~candle:candle
+        ~option_chain:option_chain
+        ~offset:offset
+        ~positions:state.positions in
     let close_time_orders =
-      if is_time candle.timestamp (13 * 60 + 55) then (* 5 mins before day close *)
-        close_all_open_orders state.positions option_chain
-      else
-        [] in
-
+      close_time_orders
+        ~candle:candle
+        ~positions:state.positions
+        ~option_chain:option_chain in
+    
     let all_orders = expired_close_orders @ transition_orders @ state.created_orders @ close_time_orders in
     let positions = Position.update_positions_with_option_chain option_chain state.positions in
     let new_local_state = { last_breach = current_breach } in
-    let new_state = { state with created_orders = all_orders; local_state = new_local_state;
-                      positions = positions } in
+    let new_state = {
+      state with created_orders = all_orders;
+      local_state = new_local_state;
+      positions = positions
+    } in
 
     (* write all positions to csv at the end, hopefully all of them are closed. *)
     if is_time candle.timestamp (14 * 60) then (
@@ -441,11 +454,10 @@ let on_event (state : 'local_state Strategy.state) (event : event) : 'local_stat
     ) else
       Lwt.return new_state
 
-
 let extract_orders (state : 'local_state Strategy.state) : Order.t list * 'local_state Strategy.state =
   let orders_to_extract = state.created_orders in
-  let new_state = { state with created_orders = [] } in (* Create a new state with pending_orders cleared *)
-  (orders_to_extract, new_state) (* Return the orders and the new state *)
+  let new_state = { state with created_orders = [] } in
+  (orders_to_extract, new_state)
 
 (* The final strategy packaged together *)
 let create (config : ('local_config, 'local_state) Strategy.config) : ('local_config, 'local_state) Strategy.t =  Strategy.create
