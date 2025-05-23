@@ -10,5 +10,8 @@
   conduit-lwt-unix
   conduit-lwt
   sexplib
-  uuidm)
+  uuidm
+  caqti
+  caqti-lwt
+  caqti-driver-postgresql)
  (preprocess (pps lwt_ppx)))
