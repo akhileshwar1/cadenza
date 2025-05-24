@@ -1,28 +1,25 @@
-open Caqti_lwt
 open Order
 
 module Q = struct
   open Caqti_request.Infix
   let order =
-    let open Caqti_type.Std in
-    let open Caqti_type in
     let intro
-        tradingsymbol
-        exchange
-        quantity
-        price
-        trigger_price
-        side
-        order_type
-        product
-        validity
-        status
-        strategy_name
-        lot
-        filled_quantity
-        filled_price
-        order_id
-        broker_order_id =
+      tradingsymbol
+      exchange
+      quantity
+      price
+      trigger_price
+      side
+      order_type
+      product
+      validity
+      status
+      strategy_name
+      lot
+      filled_quantity
+      filled_price
+      order_id
+      broker_order_id =
       {
         tradingsymbol;
         exchange;
@@ -75,34 +72,46 @@ module Q = struct
     @@ proj string (fun x -> x.broker_order_id)
     @@ proj_end)
 
+  let order_insert_type =
+    let open Caqti_type in
+    t2 string (
+      t2 string (
+        t2 int (
+          t2 float (
+            t2 float (
+              t2 string (
+                t2 string (
+                  t2 string (
+                    t2 string (
+                      t2 string (
+                        t2 string (
+                          t2 int (
+                            t2 int (
+                              t2 float (
+                                t2 string string
+                              ))))))))))))))
   let insert =
-    Caqti_type.(
-      t16 string string int float float string string string string string int
-        int float string string
-      ->. unit)
+    Caqti_type.(order_insert_type ->. unit)
       {|
       INSERT INTO $.order (
-      tradingsymbol, exchange, quantity, price, trigger_price,
-      side, order_type, product, validity, status,
+      tradingsymbol, exchange, quantity, price,
+      side, status,
       strategy_name, lot, filled_quantity, filled_price,
       order_id, broker_order_id
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       |}
 
   let insert' =
-    Caqti_type.(
-      t16 string string int float float string string string string string int
-        int float string string
-      ->! int)
+    Caqti_type.(order_insert_type ->. unit)
       {|
       INSERT INTO $.order (
-      tradingsymbol, exchange, quantity, price, trigger_price,
-      side, order_type, product, validity, status,
+      tradingsymbol, exchange, quantity, price,
+      side, status,
       strategy_name, lot, filled_quantity, filled_price,
       order_id, broker_order_id
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       RETURNING id
       |}
 
