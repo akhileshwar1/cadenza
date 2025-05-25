@@ -94,8 +94,8 @@ module Q = struct
     Caqti_type.(order_insert_type ->. unit)
       {|
       INSERT INTO $.order (
-      tradingsymbol, exchange, quantity, price,
-      side, status,
+      tradingsymbol, exchange, quantity, price, trigger_price
+      side, order_type, product, validity, status,
       strategy_name, lot, filled_quantity, filled_price,
       order_id, broker_order_id
       )
@@ -127,3 +127,41 @@ module Q = struct
       DELETE FROM $.order WHERE order_id = ?
       |}
 end
+
+let string_of_order_type = function
+  | Limit -> "Limit"
+  | Market -> "Market"
+
+let string_of_product_type = function
+  | MIS -> "MIS"
+  | CNC -> "CNC"
+  | NRML -> "NRML"
+
+let string_of_validity = function
+  | DAY -> "DAY"
+  | IOC -> "IOC"
+
+let string_of_side = function
+  | Buy -> "Buy"
+  | Sell -> "Sell"
+
+let to_db_tuple order =
+  (order.tradingsymbol,
+    (order.exchange,
+      (order.quantity,
+        (order.price,
+          (order.trigger_price,
+            (string_of_side order.side,
+              (string_of_order_type order.order_type,
+                (string_of_product_type order.product,
+                  (string_of_validity order.validity,
+                    (Order.status_to_string (Option.get order.status),
+                      (order.strategy_name,
+                        (order.lot,
+                          (order.filled_quantity,
+                            (order.filled_price,
+                              (order.order_id, order.broker_order_id)
+                            ))))))))))))))
+
+let insert (module Conn : Caqti_lwt.CONNECTION) (order : Order.t) =
+  Conn.exec Q.insert (to_db_tuple order)

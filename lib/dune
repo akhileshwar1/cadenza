@@ -12,6 +12,6 @@
   sexplib
   uuidm
   caqti
-  caqti-lwt
+  caqti-lwt.unix
   caqti-driver-postgresql)
  (preprocess (pps lwt_ppx)))

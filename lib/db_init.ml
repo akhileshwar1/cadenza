@@ -1,61 +1,76 @@
 open Caqti_request.Infix
-open Caqti_type.Std
+open Order
 
-let ( let* ) = Result.bind
 
 let get_env name =
   Sys.getenv_opt name
   |> Option.to_result ~none:("Missing environment variable: " ^ name)
 
 let get_uri () =
-  let* host = get_env "PGHOST" in
-  let* port = get_env "PGPORT" in
-  let* db   = get_env "PGDATABASE" in
-  let* user = get_env "PGUSER" in
-  let* pass = get_env "PGPASSWORD" in
-  Caqti_uri.of_string
+  let env_vars =
+    let ( let* ) = Result.bind in
+    let* host = get_env "PGHOST" in
+    let* port = get_env "PGPORT" in
+    let* db   = get_env "PGDATABASE" in
+    let* user = get_env "PGUSER" in
+    let* pass = get_env "PGPASSWORD" in
+    Ok (host, port, db, user, pass)
+  in
+  match env_vars with
+  | Ok (user, pass, host, port, db) ->
     (Printf.sprintf "postgresql://%s:%s@%s:%s/%s" user pass host port db)
+  | Error _ -> "postgresql://"
 
 let connect () =
-  let* uri = get_uri () in
-  Caqti_lwt.connect uri
+  let uri = get_uri () in
+  Caqti_lwt_unix.connect (Uri.of_string uri)
 
 let create_orders_table =
-  let query =
-    "CREATE TABLE orders (
-  order_id TEXT PRIMARY KEY,
-  broker_order_id TEXT,
-  tradingsymbol TEXT,
-  exchange TEXT,
-  quantity INTEGER,
-  price REAL,
-  trigger_price REAL,
-  side TEXT,              
-  order_type TEXT,        
-  product TEXT,           
-  validity TEXT,          
-  status TEXT,           
-  strategy_name TEXT,
-  lot INTEGER,
-  filled_quantity INTEGER,
-  filled_price REAL
-);" in
-  Caqti_request.exec Caqti_type.unit query
+  Caqti_type.(unit ->. unit)
+    {|
+    CREATE TABLE IF NOT EXISTS orders (
+    order_id TEXT PRIMARY KEY,
+    broker_order_id TEXT,
+    tradingsymbol TEXT,
+    exchange TEXT,
+    quantity INTEGER,
+    price REAL,
+    trigger_price REAL,
+    side TEXT,
+    order_type TEXT,
+    product TEXT,
+    validity TEXT,
+    status TEXT,
+    strategy_name TEXT,
+    lot INTEGER,
+    filled_quantity INTEGER,
+    filled_price REAL
+    )
+    |}
 
-let insert_orders =
-  let query =
-    "INSERT INTO orders (order_id, broker_order_id, tradingsymbol, exchange, quantity, price, trigger_price, side,
-                         order_type, product, validity, status, strategy_name, lot, filled_quantity, filled_price)
-     VALUES (
-      "ord001", "broker001", "NIFTY24MAY18400CE", "NSE",
-       150, 18.75, 0.0, "Buy", "Limit", "MIS", "DAY", "Pending",
-       "straddle-entry", 75, 0, 0.0)" in
-  Caqti_request.exec Caqti_type.unit query
+let setup (module Conn : Caqti_lwt.CONNECTION) =
+  let ( let* ) = Lwt_result.bind in
 
-let setup (module Db : Caqti_lwt.CONNECTION) =
-  let* () = Db.exec create_orders_table () in
-  Db.exec insert_orders ()
+  (* Create sample order *)
+  let sample_order = {
+    tradingsymbol = "NIFTY24MAY18400CE";
+    exchange = "NSE";
+    quantity = 150;
+    price = 18.75;
+    trigger_price = 0.0;
+    side = Buy;
+    order_type = Limit;
+    product = MIS;
+    validity = DAY;
+    status = Some Pending;
+    filled_quantity = 100;
+    filled_price = 15.0;
+    strategy_name = "straddle-entry";
+    lot = 75;
+    order_id = "ord001";
+    broker_order_id = "broker001";
+  } in
 
-let teardown (module Db : Caqti_lwt.CONNECTION) =
-  let drop = Caqti_request.exec Caqti_type.unit "DROP TABLE IF EXISTS orders" in
-  Db.exec drop ()
+  let* () = Conn.start () in
+  let* () = Conn.exec create_orders_table () in
+  Order_store.insert (module Conn) sample_order
