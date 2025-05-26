@@ -93,38 +93,38 @@ module Q = struct
   let insert =
     Caqti_type.(order_insert_type ->. unit)
       {|
-      INSERT INTO $.order (
-      tradingsymbol, exchange, quantity, price, trigger_price
+      INSERT INTO orders (
+      tradingsymbol, exchange, quantity, price, trigger_price,
       side, order_type, product, validity, status,
       strategy_name, lot, filled_quantity, filled_price,
       order_id, broker_order_id
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       |}
 
   let insert' =
     Caqti_type.(order_insert_type ->. unit)
       {|
-      INSERT INTO $.order (
+      INSERT INTO orders (
       tradingsymbol, exchange, quantity, price,
-      side, status,
+      trigger_price,side, order_type, product, validity, status,
       strategy_name, lot, filled_quantity, filled_price,
       order_id, broker_order_id
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       RETURNING id
       |}
 
   let count =
     Caqti_type.(unit ->! int)
       {|
-      SELECT COUNT(*) FROM $.order
+      SELECT COUNT(*) FROM orders
       |}
 
   let delete_by_order_id =
     Caqti_type.(string ->. unit)
       {|
-      DELETE FROM $.order WHERE order_id = ?
+      DELETE FROM orders WHERE order_id = ?
       |}
 end
 

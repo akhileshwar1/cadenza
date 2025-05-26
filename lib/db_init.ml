@@ -1,7 +1,6 @@
 open Caqti_request.Infix
 open Order
 
-
 let get_env name =
   Sys.getenv_opt name
   |> Option.to_result ~none:("Missing environment variable: " ^ name)
@@ -14,7 +13,7 @@ let get_uri () =
     let* db   = get_env "PGDATABASE" in
     let* user = get_env "PGUSER" in
     let* pass = get_env "PGPASSWORD" in
-    Ok (host, port, db, user, pass)
+    Ok (user, pass, host, port, db)
   in
   match env_vars with
   | Ok (user, pass, host, port, db) ->
@@ -24,6 +23,9 @@ let get_uri () =
 let connect () =
   let uri = get_uri () in
   Caqti_lwt_unix.connect (Uri.of_string uri)
+  |> Lwt_result.map (fun conn -> (module struct
+      include (val conn : Caqti_lwt.CONNECTION)
+    end : Caqti_lwt.CONNECTION))
 
 let create_orders_table =
   Caqti_type.(unit ->. unit)
@@ -73,4 +75,5 @@ let setup (module Conn : Caqti_lwt.CONNECTION) =
 
   let* () = Conn.start () in
   let* () = Conn.exec create_orders_table () in
-  Order_store.insert (module Conn) sample_order
+  let* () = Order_store.insert (module Conn) sample_order in
+  Conn.commit ()
