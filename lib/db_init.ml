@@ -1,5 +1,5 @@
 open Caqti_request.Infix
-open Order
+(* open Order *)
 
 let get_env name =
   Sys.getenv_opt name
@@ -54,26 +54,26 @@ let setup (module Conn : Caqti_lwt.CONNECTION) =
   let ( let* ) = Lwt_result.bind in
 
   (* Create sample order *)
-  let sample_order = {
-    tradingsymbol = "NIFTY24MAY18400CE";
-    exchange = "NSE";
-    quantity = 150;
-    price = 18.75;
-    trigger_price = 0.0;
-    side = Buy;
-    order_type = Limit;
-    product = MIS;
-    validity = DAY;
-    status = Some Pending;
-    filled_quantity = 100;
-    filled_price = 15.0;
-    strategy_name = "straddle-entry";
-    lot = 75;
-    order_id = "ord001";
-    broker_order_id = "broker001";
-  } in
+  (* let sample_order = { *)
+  (*   tradingsymbol = "NIFTY24MAY18400CE"; *)
+  (*   exchange = "NSE"; *)
+  (*   quantity = 150; *)
+  (*   price = 18.75; *)
+  (*   trigger_price = 0.0; *)
+  (*   side = Buy; *)
+  (*   order_type = Limit; *)
+  (*   product = MIS; *)
+  (*   validity = DAY; *)
+  (*   status = Some Pending; *)
+  (*   filled_quantity = 100; *)
+  (*   filled_price = 15.0; *)
+  (*   strategy_name = "straddle-entry"; *)
+  (*   lot = 75; *)
+  (*   order_id = "ord001"; *)
+  (*   broker_order_id = "broker001"; *)
+  (* } in *)
 
   let* () = Conn.start () in
   let* () = Conn.exec create_orders_table () in
-  let* () = Order_store.insert (module Conn) sample_order in
+  (* let* () = Order_store.insert (module Conn) sample_order in *)
   Conn.commit ()

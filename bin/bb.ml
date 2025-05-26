@@ -15,6 +15,14 @@ let safe_update f =
     f ()
   )
 
+(* for db calls *)
+let with_db_conn strategy_ref f =
+  match !strategy_ref.Cadenza.Strategy.config.db_conn with
+  | Some conn -> f conn
+  | None -> 
+      Logs.err (fun m -> m "DB connection not initialized");
+      Lwt.return_unit
+
 let log_position_update (pos : Cadenza.Position.t) =
   let value = pos.value in
   let color = if value <= 0.0 then green else red in
@@ -76,15 +84,26 @@ let send_order_to_oms (oms_uri : Uri.t) (order : Cadenza.Order.t)
       if Cohttp.Code.is_success status_int then (
         Lwt_io.printf "Order successfully sent to OMS.\n" >>= fun () ->
         let open Yojson.Safe.Util in
+        let open Lwt.Syntax in
         let json = Yojson.Safe.from_string body_string in
         let broker_order_id = json |> member "broker_order_id" |> to_string in
         let updated_state = {state with pending_orders = state.pending_orders @ [{order with broker_order_id = broker_order_id}]} in
         strategy_ref := Cadenza.Strategy.update_state !strategy_ref updated_state;
-        Lwt.return_unit
+        (* insert the order in db here *)
+        with_db_conn 
+          strategy_ref
+          (fun conn ->
+            let order_with_id = { order with broker_order_id } in
+            let* res = Cadenza.Order_store.insert conn order_with_id in
+            match res with
+            | Ok _ -> Lwt.return_unit
+            | Error _ ->
+              Lwt.return_unit
+          )
       ) else (
         Lwt_io.eprintf "OMS returned an error status: %d %s\n" status_int status_string
       )
-          )
+    )
     (fun exn ->
       let error_msg = Printexc.to_string exn in
       Lwt_io.eprintf "Error sending order to OMS: %s\n" error_msg
@@ -163,6 +182,7 @@ let process_order_update
   let pending_orders = state.pending_orders in
   let completed_orders = state.completed_orders in
   let rejected_orders = state.rejected_orders in
+  let (let*) = Lwt.bind in
   try
     match Cadenza.Order.of_yojson json with
     | order ->
@@ -179,6 +199,17 @@ let process_order_update
           pending_orders = updated_pending_orders;
           positions = updated_positions} in
         strategy_ref := Cadenza.Strategy.update_state !strategy_ref updated_state;
+        (* ⬇ Insert DB update here in Lwt context *)
+        let* () =
+          with_db_conn strategy_ref (fun conn ->
+            let* res = Cadenza.Order_store.update conn completed_order in
+            match res with
+            | Ok _ -> Lwt.return_unit
+            | Error err ->
+              Logs.err (fun m -> m "DB update failed: %a" Caqti_error.pp err);
+              Lwt.return_unit
+          )
+        in
         (* Log and write only the relevant position *)
         (match (List.find_opt (fun (pos : Cadenza.Position.t) -> pos.symbol = completed_order.tradingsymbol) updated_positions) with
           | Some pos ->
@@ -200,6 +231,16 @@ let process_order_update
         Printf.printf " Updated Pending Order is: %s\n%!" (Yojson.Safe.pretty_to_string json);
         let updated_state = { state with pending_orders = updated_pending_orders} in
         strategy_ref := Cadenza.Strategy.update_state !strategy_ref updated_state;
+        let* () =
+          with_db_conn strategy_ref (fun conn ->
+            let* res = Cadenza.Order_store.update conn pending_order in
+            match res with
+            | Ok _ -> Lwt.return_unit
+            | Error err ->
+              Logs.err (fun m -> m "DB update failed: %a" Caqti_error.pp err);
+              Lwt.return_unit
+          )
+        in
         Lwt.return_unit
   with
     | exn ->
@@ -235,54 +276,77 @@ let create_order_update_handler
 (*   Lwt.return_unit *)
 
 let () =
-  (* Build config *)
-  let config = {
-    Cadenza.Strategy.data_layer_uri = Cadenza.Connector.get_env_or_default "DATA_LAYER_URI" "ws://127.0.0.1:8000/candles/stream";
-    oms_layer_uri = Cadenza.Connector.get_env_or_default "OMS_LAYER_URI" "http://localhost:9000/order/place";
-    oms_ws_uri = Cadenza.Connector.get_env_or_default "OMS_WS_URI" "ws://localhost:8081/";
-    symbol = "NIFTY";
-    local_config = ();
-  } in
+  let open Lwt.Syntax in
 
-
-  let oms_uri = Uri.of_string config.oms_layer_uri in
-  let strategy = Cadenza.Bb_strategy.create config in
-  let current_strategy = ref strategy in
-  (* Create the message handler using the OMS URI and the specific strategy ref *)
-  let message_handler =
-    create_message_handler
-      oms_uri
-      current_strategy (* Pass the specific strategy ref *)
+  (* Initialize DB connection and strategy together *)
+  let strategy_promise =
+    let* result = Cadenza.Db_init.connect () in
+    match result with
+    | Error e ->
+        Logs.err (fun m -> m "DB connection failed: %a" Caqti_error.pp e);
+        Lwt.fail_with "DB connection failed"
+    | Ok (module Conn) ->
+        let* setup_result = Cadenza.Db_init.setup (module Conn) in
+        (match setup_result with
+        | Error e ->
+            Logs.err (fun m -> m "DB setup failed: %a" Caqti_error.pp e);
+            Lwt.fail_with "DB setup failed"
+        | Ok () ->
+            (* Build config with db_conn now *)
+            let config = {
+              Cadenza.Strategy.data_layer_uri = Cadenza.Connector.get_env_or_default "DATA_LAYER_URI" "ws://127.0.0.1:8000/candles/stream";
+              oms_layer_uri = Cadenza.Connector.get_env_or_default "OMS_LAYER_URI" "http://localhost:9000/order/place";
+              oms_ws_uri = Cadenza.Connector.get_env_or_default "OMS_WS_URI" "ws://localhost:8081/";
+              symbol = "NIFTY";
+              local_config = ();
+              db_conn = Some (module Conn);  (* Inject the DB connection *)
+            } in
+            let strategy = Cadenza.Bb_strategy.create config in
+            Lwt.return strategy)
   in
 
-  let order_update_handler = 
-    create_order_update_handler
-      current_strategy
+  (* Compose Lwt main after strategy is initialized *)
+  let main =
+    let* strategy = strategy_promise in
+    let current_strategy = ref strategy in
+
+    let oms_uri = Uri.of_string strategy.config.oms_layer_uri in
+
+    let message_handler =
+      create_message_handler
+        oms_uri
+        current_strategy
+    in
+
+    let order_update_handler =
+      create_order_update_handler
+        current_strategy
+    in
+
+    let login_msg = Yojson.Safe.to_string (`Assoc []) in
+    let heartbeat_msg = Yojson.Safe.to_string (`Assoc []) in
+
+    let market_data_promise =
+      connect_to_data_stream
+        strategy.config.data_layer_uri
+        message_handler
+        login_msg
+        heartbeat_msg
+        false
+    in
+
+    let oms_update_promise =
+      connect_to_data_stream
+        strategy.config.oms_ws_uri
+        order_update_handler
+        login_msg
+        heartbeat_msg
+        false
+    in
+
+    Cadenza.Bb_strategy.write_header_to_csv "positions.csv";
+
+    Lwt.join [market_data_promise; oms_update_promise]
   in
 
-  let login_msg = Yojson.Safe.to_string (`Assoc []) in
-  let heartbeat_msg = Yojson.Safe.to_string (`Assoc []) in
-  let market_data_promise =
-    connect_to_data_stream
-      config.data_layer_uri
-      message_handler 
-      login_msg
-      heartbeat_msg
-      false
-  in
-
-  let oms_update_promise =
-    connect_to_data_stream
-      config.oms_ws_uri
-      order_update_handler
-      login_msg
-      heartbeat_msg
-      false
-  in
-
-  (* let mock_order_feeder_promise = *)
-  (*   start_mock_order_feeder order_update_handler *)
-  (* in *)
-  
-  Cadenza.Bb_strategy.write_header_to_csv "positions.csv";
-  Lwt_main.run (Lwt.join [market_data_promise; oms_update_promise(* ; mock_order_feeder_promise *)])
+  Lwt_main.run main

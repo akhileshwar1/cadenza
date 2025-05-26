@@ -390,7 +390,7 @@ let transition_orders ~current_breach ~last_breach ~candle ~option_chain ~offset
       | Lower, Lower -> 
       Printf.printf "NO breach! %! %f %f %f \n %!" candle.lower_band candle.close_price candle.upper_band;
       []
-(* generate_upper_breach_orders ~option_chain ~candle ~offset *)
+      (* generate_upper_breach_orders ~option_chain ~candle ~offset *)
 
 (* close all open orders, don't want no open positions into the night, for the night is dark *)
 let close_time_orders ~candle ~positions ~option_chain =

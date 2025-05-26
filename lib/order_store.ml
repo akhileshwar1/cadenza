@@ -1,5 +1,7 @@
 open Order
 
+let ( let* ) = Lwt_result.bind
+
 module Q = struct
   open Caqti_request.Infix
   let order =
@@ -115,6 +117,17 @@ module Q = struct
       RETURNING id
       |}
 
+  let update =
+    Caqti_type.(order_insert_type ->. unit)
+      {|
+      UPDATE orders SET
+      tradingsymbol = ?, exchange = ?, quantity = ?, price = ?, trigger_price = ?,
+      side = ?, order_type = ?, product = ?, validity = ?, status = ?,
+      strategy_name = ?, lot = ?, filled_quantity = ?, filled_price = ?,
+      broker_order_id = ?
+      WHERE order_id = ?
+      |}
+
   let count =
     Caqti_type.(unit ->! int)
       {|
@@ -164,4 +177,9 @@ let to_db_tuple order =
                             ))))))))))))))
 
 let insert (module Conn : Caqti_lwt.CONNECTION) (order : Order.t) =
-  Conn.exec Q.insert (to_db_tuple order)
+  let* () = Conn.exec Q.insert (to_db_tuple order) in
+  Conn.commit ()
+
+let update (module Conn : Caqti_lwt.CONNECTION) (order : Order.t) =
+  let* () = Conn.exec Q.update (to_db_tuple order) in
+  Conn.commit ()
