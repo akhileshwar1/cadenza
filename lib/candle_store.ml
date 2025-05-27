@@ -35,10 +35,10 @@ module Q = struct
     Caqti_type.(candle_insert_type ->. unit)
       {|
       INSERT INTO candles (
-        timestamp, open_price, high_price, low_price,
+        timestamp, symbol, open_price, high_price, low_price,
         close_price, upper_band, lower_band, sma
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, 'NIFTY50', ?, ?, ?, ?, ?, ?, ?)
       |}
 
   let count =
@@ -56,6 +56,7 @@ let to_db_tuple (c : candle) =
               (c.lower_band, c.sma)))))))
 
 let insert (module Conn : Caqti_lwt.CONNECTION) (candle : candle) =
+  Printf.printf "in q insert\n%!";
   let* () = Conn.exec Q.insert (to_db_tuple candle) in
   Conn.commit ()
 

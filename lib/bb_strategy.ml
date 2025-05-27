@@ -1,4 +1,5 @@
 (* bb_strategy.ml *)
+(* Let this module be purely functional always *)
 open Strategy
 open Unix
 
@@ -6,14 +7,6 @@ type breach_status =
   | Upper
   | Lower
   | Between 
-
-(* Local state specific to AlternateStrategy *)
-type local_state = {
-  last_breach : breach_status;
-} 
-
-(* Config specific to AlternateStrategy *)
-type local_config = unit
 
 (* Define the candle type for this strategy *)
 type candle = {
@@ -27,6 +20,17 @@ type candle = {
   sma : float;
 }
 
+(* Local state specific to AlternateStrategy *)
+type local_state = {
+  last_breach : breach_status;
+  candle : candle;
+  option_chain : Option_chain.t;
+} 
+
+(* Config specific to AlternateStrategy *)
+type local_config = unit
+
+
 (* Event type specific to this strategy *)
 type event =
   | Market_data_event of candle
@@ -34,6 +38,9 @@ type event =
 (* Initialize the strategy state *)
 let initial_local_state = {
   last_breach = Between;
+  candle = {timestamp = ""; open_price = 0.0; high_price = 0.0; low_price = 0.0;
+            close_price = 0.0; upper_band = 0.0; lower_band = 0.0; sma = 0.0};
+  option_chain = [];
 }
 
 let write_header_to_csv (file : string) =
@@ -444,7 +451,7 @@ let on_event (state : 'local_state Strategy.state) (event : event) : 'local_stat
     
     let all_orders = expired_close_orders @ transition_orders @ state.created_orders @ close_time_orders in
     let positions = Position.update_positions_with_option_chain option_chain state.positions in
-    let new_local_state = { last_breach = current_breach } in
+    let new_local_state = { last_breach = current_breach; candle = candle; option_chain = option_chain } in
     let new_state = {
       state with created_orders = all_orders;
       local_state = new_local_state;

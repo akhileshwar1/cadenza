@@ -2,6 +2,7 @@
 open Cadenza.Order
 open Lwt
 open Cadenza.Connector
+open Cadenza.Bb_strategy
 
 (* let mock_order_queue : string Lwt_mvar.t = Lwt_mvar.create_empty () *)
 let red str = "\027[31m" ^ str ^ "\027[0m"
@@ -114,9 +115,12 @@ let send_order_to_oms (oms_uri : Uri.t) (order : Cadenza.Order.t)
 let process_json_message
   (json : Yojson.Safe.t)
   (current_strategy_ref : (unit, Cadenza.Bb_strategy.local_state) Cadenza.Strategy.t ref) (* Specific strategy ref type *)
-  : Cadenza.Order.t list Lwt.t =
+  : (Cadenza.Order.t list * Cadenza.Bb_strategy.candle * Cadenza.Option_chain.t) Lwt.t =
+  let empty_candle = {timestamp = ""; open_price = 0.0; high_price = 0.0; low_price = 0.0;
+    close_price = 0.0; upper_band = 0.0; lower_band = 0.0; sma = 0.0} in
   try
     let candle = Cadenza.Bb_strategy.json_to_candle json in
+
     let event = Cadenza.Bb_strategy.Market_data_event candle in (* Assuming Market_data_event is in Cadenza.Strategy *)
 
     let old_state = (!current_strategy_ref).state in
@@ -125,21 +129,22 @@ let process_json_message
 
     let orders, new_state_after_extraction = Cadenza.Bb_strategy.extract_orders (!current_strategy_ref).Cadenza.Strategy.state in
     current_strategy_ref := Cadenza.Strategy.update_state !current_strategy_ref new_state_after_extraction;
-
-    Lwt.return orders
+    let option_chain = !current_strategy_ref.state.local_state.option_chain in
+    Lwt.return (orders, candle, option_chain)
   with
     (* Add specific error handling for your candle processing if needed *)
     | Yojson.Safe.Util.Type_error (msg, j) ->
-    Lwt_io.eprintf "JSON Type Error in process_json_message: %s\nJSON: %s\n" msg (Yojson.Safe.to_string j)
-    >>= fun () -> Lwt.return []
+          Lwt_io.eprintf "JSON Type Error in process_json_message: %s\nJSON: %s\n" msg (Yojson.Safe.to_string j)
+    >>= fun () -> Lwt.return ([], empty_candle , []) 
     | Yojson.Json_error msg ->
     Lwt_io.eprintf "JSON Parsing Error in process_json_message: %s\nRaw Message: <<< %s >>>\n" msg (Yojson.Safe.to_string json) (* Pass the json object for context *)
-    >>= fun () -> Lwt.return []
+    >>= fun () -> Lwt.return ([], empty_candle, [])
     | exn ->
     Lwt_io.eprintf "Unexpected error in process_json_message: %s\n" (Printexc.to_string exn)
-    >>= fun () -> Lwt.return []
+    >>= fun () -> Lwt.return ([], empty_candle, [])
 
 (* Function to create the actual message handler callback, specific to Bb_strategy *)
+(* Side effects here *)
 let create_message_handler
   (oms_uri : Uri.t)
   (current_strategy_ref : (unit, Cadenza.Bb_strategy.local_state) Cadenza.Strategy.t ref) (* Specific strategy ref type *)
@@ -148,24 +153,51 @@ let create_message_handler
   (fun message_string ->
     Lwt.catch
       (fun () ->
+        let (let*) = Lwt.bind in
         (* Parse the raw message string as JSON *)
         let json = Yojson.Safe.from_string message_string in
-
         (* Process the JSON message using the specific strategy functions and get orders *)
-        safe_update (fun () -> process_json_message json current_strategy_ref >>= fun orders ->
+        safe_update (fun () -> process_json_message json current_strategy_ref >>= fun (orders, candle, option_chain) ->
 
-        (* Send extracted orders to OMS *)
-        Lwt_io.printf "Extracted %d orders. Sending to OMS...\n" (List.length orders) >>= fun () ->
-        Lwt_list.iter_s (fun order -> (* Use Lwt_list.iter_s for asynchronous iteration *)
-          (* add the liquidity call here for UAT testing. *)
-          (* let counter_order =  *)
-          (*   match order.side with *)
-          (*   | Buy -> {order with side = Sell} *)
-          (*   | Sell -> {order with side = Buy} in *)
-          (*      let%lwt _ = send_order_to_oms (Uri.of_string "http://localhost:9001/order/place") counter_order current_strategy_ref in *)
-               send_order_to_oms oms_uri order current_strategy_ref (* Call the new function *)
-        ) orders
-      ))
+          (* Send extracted orders to OMS *)
+          Lwt_io.printf "Extracted %d orders. Sending to OMS...\n" (List.length orders) >>= fun () ->
+          Lwt_list.iter_s (fun order -> (* Use Lwt_list.iter_s for asynchronous iteration *)
+            (* add the liquidity call here for UAT testing. *)
+            (* let counter_order =  *)
+            (*   match order.side with *)
+            (*   | Buy -> {order with side = Sell} *)
+            (*   | Sell -> {order with side = Buy} in *)
+            (*      let%lwt _ = send_order_to_oms (Uri.of_string "http://localhost:9001/order/place") counter_order current_strategy_ref in *)
+            send_order_to_oms oms_uri order current_strategy_ref (* Call the new function *)
+          ) orders >>= fun () ->
+          if (candle.timestamp != "") then
+            with_db_conn current_strategy_ref (fun conn ->
+              Printf.printf "in insert candle\n%!";
+              let* res = Cadenza.Candle_store.insert conn candle in
+              match res with
+              | Ok _ -> 
+                Printf.printf "inserted candle\n%!";
+                Lwt.return_unit
+              | Error err ->
+                Logs.err (fun m -> m "DB update failed: %a" Caqti_error.pp err);
+                Lwt.return_unit
+            )
+          else Lwt.return_unit;
+          >>= fun () ->
+            if (option_chain != [] && candle.timestamp != "") then
+              with_db_conn current_strategy_ref (fun conn ->
+                Printf.printf "in insert chain\n%!";
+                let* res = Cadenza.Option_chain_store.insert conn ~timestamp:candle.timestamp option_chain in
+                match res with
+                | Ok _ -> 
+                  Printf.printf "inserted option chain\n%!";
+                  Lwt.return_unit
+                | Error err ->
+                  Logs.err (fun m -> m "DB update failed: %a" Caqti_error.pp err);
+                  Lwt.return_unit
+              )
+            else Lwt.return_unit
+        ))
       (fun exn ->
         let error_msg = Printexc.to_string exn in
         Lwt_io.eprintf "Error in message handler: %s\n" error_msg >>= fun () ->
@@ -277,6 +309,8 @@ let create_order_update_handler
 
 let () =
   let open Lwt.Syntax in
+  Logs.set_reporter (Logs_fmt.reporter ());
+  Logs.set_level (Some Logs.Debug);
 
   (* Initialize DB connection and strategy together *)
   let strategy_promise =
@@ -292,17 +326,18 @@ let () =
             Logs.err (fun m -> m "DB setup failed: %a" Caqti_error.pp e);
             Lwt.fail_with "DB setup failed"
         | Ok () ->
-            (* Build config with db_conn now *)
-            let config = {
-              Cadenza.Strategy.data_layer_uri = Cadenza.Connector.get_env_or_default "DATA_LAYER_URI" "ws://127.0.0.1:8000/candles/stream";
-              oms_layer_uri = Cadenza.Connector.get_env_or_default "OMS_LAYER_URI" "http://localhost:9000/order/place";
-              oms_ws_uri = Cadenza.Connector.get_env_or_default "OMS_WS_URI" "ws://localhost:8081/";
-              symbol = "NIFTY";
-              local_config = ();
-              db_conn = Some (module Conn);  (* Inject the DB connection *)
-            } in
-            let strategy = Cadenza.Bb_strategy.create config in
-            Lwt.return strategy)
+          Printf.printf "Db connected!\n%!";
+          (* Build config with db_conn now *)
+          let config = {
+            Cadenza.Strategy.data_layer_uri = Cadenza.Connector.get_env_or_default "DATA_LAYER_URI" "ws://127.0.0.1:8000/candles/stream";
+            oms_layer_uri = Cadenza.Connector.get_env_or_default "OMS_LAYER_URI" "http://localhost:9000/order/place";
+            oms_ws_uri = Cadenza.Connector.get_env_or_default "OMS_WS_URI" "ws://localhost:8081/";
+            symbol = "NIFTY";
+            local_config = ();
+            db_conn = Some (module Conn);  (* Inject the DB connection *)
+          } in
+          let strategy = Cadenza.Bb_strategy.create config in
+          Lwt.return strategy)
   in
 
   (* Compose Lwt main after strategy is initialized *)

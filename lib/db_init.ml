@@ -56,11 +56,13 @@ let create_candles_table =
     CREATE TABLE IF NOT EXISTS candles (
     timestamp TIMESTAMPTZ NOT NULL,
     symbol TEXT NOT NULL,
-    open REAL NOT NULL,
-    high REAL NOT NULL,
-    low REAL NOT NULL,
-    close REAL NOT NULL,
-    volume REAL NOT NULL,
+    open_price REAL NOT NULL,
+    high_price REAL NOT NULL,
+    low_price REAL NOT NULL,
+    close_price REAL NOT NULL,
+    upper_band REAL NOT NULL,
+    lower_band REAL NOT NULL,
+    sma REAL NOT NULL,
     PRIMARY KEY (timestamp, symbol)
     )
     |}
