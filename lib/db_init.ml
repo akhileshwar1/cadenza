@@ -50,6 +50,41 @@ let create_orders_table =
     )
     |}
 
+let create_candles_table =
+  Caqti_type.(unit ->. unit)
+    {|
+    CREATE TABLE IF NOT EXISTS candles (
+    timestamp TIMESTAMPTZ NOT NULL,
+    symbol TEXT NOT NULL,
+    open REAL NOT NULL,
+    high REAL NOT NULL,
+    low REAL NOT NULL,
+    close REAL NOT NULL,
+    volume REAL NOT NULL,
+    PRIMARY KEY (timestamp, symbol)
+    )
+    |}
+
+let create_option_chain_table =
+  Caqti_type.(unit ->. unit)
+    {|
+    CREATE TABLE IF NOT EXISTS option_chain (
+    timestamp TEXT NOT NULL,
+    expiry TEXT NOT NULL,
+    strike REAL NOT NULL,
+    option_type TEXT NOT NULL,  -- "CE" or "PE"
+    symbol TEXT NOT NULL,
+    ltp REAL,
+    delta REAL,
+    iv REAL,
+    vega REAL,
+    theta REAL,
+    gamma REAL,
+    rho REAL,
+    PRIMARY KEY (timestamp, expiry, strike, option_type)
+    )
+    |}
+
 let setup (module Conn : Caqti_lwt.CONNECTION) =
   let ( let* ) = Lwt_result.bind in
 
@@ -75,5 +110,7 @@ let setup (module Conn : Caqti_lwt.CONNECTION) =
 
   let* () = Conn.start () in
   let* () = Conn.exec create_orders_table () in
+  let* () = Conn.exec create_candles_table () in
+  let* () = Conn.exec create_option_chain_table () in
   (* let* () = Order_store.insert (module Conn) sample_order in *)
   Conn.commit ()
