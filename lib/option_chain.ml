@@ -7,6 +7,11 @@ type option_data = {
   ltp : float;
   delta : float;
   strike : string;
+  iv : float;
+  vega : float;
+  theta : float;
+  gamma : float;
+  rho : float;
 }
 
 type t = (string * (float * (string * option_data) list) list) list
@@ -30,6 +35,11 @@ let parse_option_data json : option_data =
   let symbol = safe_to_string "symbol" json in
   let ltp = safe_to_float "ltp" json in
   let delta = safe_to_float "delta" json in
+  let iv = safe_to_float "IV" json in
+  let vega = safe_to_float "vega" json in
+  let theta = safe_to_float "theta" json in
+  let gamma = safe_to_float "gamma" json in
+  let rho = safe_to_float "rho" json in
   let strike = safe_to_string "strike" json in
   (* log (Printf.sprintf "Parsed option: %s ltp=%f delta=%f %s" symbol ltp delta strike); *)
   {
@@ -37,6 +47,11 @@ let parse_option_data json : option_data =
     ltp;
     delta;
     strike;
+    iv;
+    vega;
+    theta;
+    gamma;
+    rho;
   }
 
 let parse (json : Yojson.Safe.t) : t =

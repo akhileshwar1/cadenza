@@ -130,6 +130,11 @@ let generate_mock_option_chain candle : Option_chain.t Lwt.t =
       ltp = premium;
       delta = delta;
       strike = "";
+      iv = 0.0;
+      vega = 0.0;
+      theta = 0.0;
+      gamma = 0.0;
+      rho = 0.0;
     } in
     option
   in
