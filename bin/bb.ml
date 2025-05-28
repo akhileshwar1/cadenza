@@ -98,7 +98,8 @@ let send_order_to_oms (oms_uri : Uri.t) (order : Cadenza.Order.t)
             let* res = Cadenza.Order_store.insert conn order_with_id in
             match res with
             | Ok _ -> Lwt.return_unit
-            | Error _ ->
+            | Error err ->
+              Logs.err (fun m -> m "DB update failed: %a" Caqti_error.pp err);
               Lwt.return_unit
           )
       ) else (
@@ -310,7 +311,7 @@ let create_order_update_handler
 let () =
   let open Lwt.Syntax in
   Logs.set_reporter (Logs_fmt.reporter ());
-  Logs.set_level (Some Logs.Debug);
+  Logs.set_level (Some Logs.Info);
 
   (* Initialize DB connection and strategy together *)
   let strategy_promise =
