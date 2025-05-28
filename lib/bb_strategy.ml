@@ -102,7 +102,7 @@ let is_outside_trading_window (timestamp_str : string) : bool =
           tm_wday = 0; tm_yday = 0; tm_isdst = false })
   in
   let minutes = ist_tm.Unix.tm_hour * 60 + ist_tm.Unix.tm_min in
-  minutes < (7 * 60 + 55) || minutes >= (13 * 60 + 45)
+  minutes < (7 * 60 + 55) || minutes >= (13 * 60 + 25)
 
 let is_time (timestamp_str : string) (mins_time : int) : bool =
   let ist_tm =
@@ -201,7 +201,7 @@ let expired_close_orders (positions : Position.t list) (option_chain: Option_cha
   positions
   |> List.filter (fun (pos : Position.t) -> (pos.status = Open &&
                                              match pos.strat_pos with
-                                              | Position.Bb b -> b.candles = 2)) (* (current_time -. pos.opened_at_epoch) >= 600.0 *)
+                                              | Position.Bb b -> b.candles = 3)) (* (current_time -. pos.opened_at_epoch) >= 600.0 *)
   |> List.concat_map (generate_close_orders_for_position option_chain)
 
 (* used in cases where you want to make sure you are not carrying a position overnight *)
@@ -297,7 +297,7 @@ let generate_upper_breach_orders ~option_chain ~candle ~offset : Order.t list =
   let put_data = get_option_data option_chain expiry put_strike "PE" in
   let put_delta = abs_float put_data.delta in
   Printf.printf " call delta exposure and put delta are %f %f \n%!" call_delta_exposure put_delta;
-  let put_qty = int_of_float (ceil (0.5 *. call_delta_exposure /. put_delta)) in
+  let put_qty = int_of_float (ceil (0.75 *. call_delta_exposure /. put_delta)) in
   let put_lots, put_adj_qty = lots_and_quantity 75 put_qty in
   let call_trading_symbol = "NIFTY" ^ convert_date_to_symbol expiry ^ call_data.strike in
   let put_trading_symbol = "NIFTY" ^ convert_date_to_symbol expiry ^ put_data.strike in
@@ -341,7 +341,7 @@ let generate_lower_breach_orders ~option_chain ~candle ~offset : Order.t list =
   let call_data = get_option_data option_chain expiry call_strike "CE" in
   let call_delta = abs_float call_data.delta in
   Printf.printf " put delta exposure and call delta are %f %f \n%!" put_delta_exposure call_delta;
-  let call_qty = int_of_float (ceil (0.5 *. put_delta_exposure /. call_delta)) in
+  let call_qty = int_of_float (ceil (0.75 *. put_delta_exposure /. call_delta)) in
   let call_lots, call_adj_qty = lots_and_quantity 75 call_qty in
   let call_trading_symbol = "NIFTY" ^ convert_date_to_symbol expiry ^ call_data.strike in
   let put_trading_symbol = "NIFTY" ^ convert_date_to_symbol expiry ^ put_data.strike in
@@ -405,11 +405,11 @@ let transition_orders ~current_breach ~last_breach ~candle ~option_chain ~offset
       (* generate_upper_breach_orders ~option_chain ~candle ~offset *)
 
 (* close all open orders, don't want no open positions into the night, for the night is dark *)
-let close_time_orders ~candle ~positions ~option_chain =
-  if is_time candle.timestamp (13 * 60 + 55) then (* 5 mins before day close *)
-    close_all_open_orders positions option_chain
-  else
-    []
+(* let close_time_orders ~candle ~positions ~option_chain = *)
+(*   if is_time candle.timestamp (13 * 60 + 50) then (* 5 mins before day close *) *)
+(*     close_all_open_orders positions option_chain *)
+(*   else *)
+(*     [] *)
 
 let get_breach_type ~candle =
   if candle.close_price > candle.upper_band then Upper
@@ -443,13 +443,14 @@ let on_event (state : 'local_state Strategy.state) (event : event) : 'local_stat
         ~option_chain:option_chain
         ~offset:offset
         ~positions:state.positions in
-    let close_time_orders =
-      close_time_orders
-        ~candle:candle
-        ~positions:state.positions
-        ~option_chain:option_chain in
+    (* let close_time_orders = *)
+    (*   close_time_orders *)
+    (*     ~candle:candle *)
+    (*     ~positions:state.positions *)
+    (*     ~option_chain:option_chain in *)
+    (* bug here, what if the expired closed orders/trasnsition orders, generated the same orders as close time orders *)
     
-    let all_orders = expired_close_orders @ transition_orders @ state.created_orders @ close_time_orders in
+    let all_orders = expired_close_orders @ transition_orders @ state.created_orders (* @ close_time_orders *) in
     let positions = Position.update_positions_with_option_chain option_chain state.positions in
     let new_local_state = { last_breach = current_breach; candle = candle; option_chain = option_chain } in
     let new_state = {
@@ -459,7 +460,7 @@ let on_event (state : 'local_state Strategy.state) (event : event) : 'local_stat
     } in
 
     (* write all positions to csv at the end, hopefully all of them are closed. *)
-    if is_time candle.timestamp (14 * 60) then (
+    if is_time candle.timestamp (13 * 60 + 55) then (
       write_header_to_csv "pnl.csv";
       List.iter (fun pos -> write_position_to_csv "pnl.csv" pos) state.positions;
       Lwt.return new_state
