@@ -258,9 +258,13 @@ let rec count_trading_days from_time to_time =
     let rest = count_trading_days next_day to_time in
     if is_weekend tm then rest else 1 + rest
 
+(* assumes that it wouldn't be called in the case where we are on the expiry day because our option_chain.get
+   handles that *)
 let get_offset_from_day (today : float) (expiry : float) : float =
   let trading_days = count_trading_days today expiry in
+  Printf.printf "trading days is %d\n" trading_days; 
   match trading_days with
+  | 5 -> 250.0
   | 4 -> 200.0
   | 3 -> 150.0
   | 2 -> 100.0
@@ -432,6 +436,7 @@ let on_event (state : 'local_state Strategy.state) (event : event) : 'local_stat
     in
     (* Cornerstone: we are assuming the option_chain will always have the expiry to be worked upon *)
     let expiry = current_expiry_from_option_chain ~option_chain:option_chain in 
+    Printf.printf " current expiry is %s\n" expiry;
     let expiry_epoch = expiry_to_epoch expiry in
     let offset = get_offset_from_day current_time expiry_epoch in
     let expired_close_orders = expired_close_orders state.positions option_chain in
