@@ -102,7 +102,7 @@ let is_outside_trading_window (timestamp_str : string) : bool =
           tm_wday = 0; tm_yday = 0; tm_isdst = false })
   in
   let minutes = ist_tm.Unix.tm_hour * 60 + ist_tm.Unix.tm_min in
-  minutes < (7 * 60 + 55) || minutes >= (13 * 60 + 25)
+  minutes < (7 * 60 + 55) || minutes > (13 * 60 + 30) (* 1:30 here is candle time, which comes at 1:35 real time, ergo if you take the position it will be closed at 1:50 candle time i.e 1:55 real time, the last candle when the market is open *)
 
 let is_time (timestamp_str : string) (mins_time : int) : bool =
   let ist_tm =
