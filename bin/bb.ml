@@ -117,8 +117,8 @@ let process_json_message
   (json : Yojson.Safe.t)
   (current_strategy_ref : (unit, Cadenza.Bb_strategy.local_state) Cadenza.Strategy.t ref) (* Specific strategy ref type *)
   : (Cadenza.Order.t list * Cadenza.Bb_strategy.candle * Cadenza.Option_chain.t) Lwt.t =
-  let empty_candle = {timestamp = ""; open_price = 0.0; high_price = 0.0; low_price = 0.0;
-    close_price = 0.0; upper_band = 0.0; lower_band = 0.0; sma = 0.0} in
+  let empty_candle = {timestamp = Ptime_clock.now (); open_price = 0.0; high_price = 0.0; low_price = 0.0;
+    close_price = -1.0; upper_band = 0.0; lower_band = 0.0; sma = -0.0} in
   try
     let candle = Cadenza.Bb_strategy.json_to_candle json in
 
@@ -171,7 +171,7 @@ let create_message_handler
             (*      let%lwt _ = send_order_to_oms (Uri.of_string "http://localhost:9001/order/place") counter_order current_strategy_ref in *)
             send_order_to_oms oms_uri order current_strategy_ref (* Call the new function *)
           ) orders >>= fun () ->
-          if (candle.timestamp != "") then
+          if (candle.close_price != -1.0) then
             with_db_conn current_strategy_ref (fun conn ->
               Printf.printf "in insert candle\n%!";
               let* res = Cadenza.Candle_store.insert conn candle in
@@ -185,7 +185,7 @@ let create_message_handler
             )
           else Lwt.return_unit;
           >>= fun () ->
-            if (option_chain != [] && candle.timestamp != "") then
+            if (option_chain != [] && candle.close_price != -1.0) then
               with_db_conn current_strategy_ref (fun conn ->
                 Printf.printf "in insert chain\n%!";
                 let* res = Cadenza.Option_chain_store.insert conn ~timestamp:candle.timestamp option_chain in

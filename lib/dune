@@ -13,5 +13,6 @@
   uuidm
   caqti
   caqti-lwt.unix
-  caqti-driver-postgresql)
+  caqti-driver-postgresql
+  ptime)
  (preprocess (pps lwt_ppx)))

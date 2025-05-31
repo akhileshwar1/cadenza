@@ -2,6 +2,7 @@
 (* Let this module be purely functional always *)
 open Strategy
 open Unix
+open Lwt.Infix
 
 type breach_status = 
   | Upper
@@ -10,7 +11,7 @@ type breach_status =
 
 (* Define the candle type for this strategy *)
 type candle = {
-  timestamp : string;
+  timestamp : Ptime.t;
   open_price : float;
   high_price : float;
   low_price : float;
@@ -30,7 +31,6 @@ type local_state = {
 (* Config specific to AlternateStrategy *)
 type local_config = unit
 
-
 (* Event type specific to this strategy *)
 type event =
   | Market_data_event of candle
@@ -38,7 +38,7 @@ type event =
 (* Initialize the strategy state *)
 let initial_local_state = {
   last_breach = Between;
-  candle = {timestamp = ""; open_price = 0.0; high_price = 0.0; low_price = 0.0;
+  candle = {timestamp = Ptime_clock.now (); open_price = 0.0; high_price = 0.0; low_price = 0.0;
             close_price = 0.0; upper_band = 0.0; lower_band = 0.0; sma = 0.0};
   option_chain = [];
 }
@@ -76,48 +76,39 @@ let write_position_to_csv (file : string) (pos : Position.t) =
   close_out oc
 
 (* Convert JSON to candle type *)
+(*"timestamp": "2025-05-28T12:30:00+04:00"*)
 let json_to_candle (json : Yojson.Safe.t) : candle =
   let open Yojson.Safe.Util in
-  {
-    timestamp = json |> member "timestamp" |> to_string;
-    open_price = json |> member "open" |> to_float;
-    high_price = json |> member "high" |> to_float;
-    low_price = json |> member "low" |> to_float;
-    close_price = json |> member "close" |> to_float;
-    upper_band = json |> member "upper_band" |> to_float;
-    lower_band = json |> member "lower_band" |> to_float;
-    sma = json |> member "sma" |> to_float;
-  }
+  let timestamp_str = json |> member "timestamp" |> to_string in
+  match Ptime.of_rfc3339 timestamp_str with
+  | Ok (ptime, _, _) ->
+      {
+        timestamp = ptime;
+        open_price = json |> member "open" |> to_float;
+        high_price = json |> member "high" |> to_float;
+        low_price = json |> member "low" |> to_float;
+        close_price = json |> member "close" |> to_float;
+        upper_band = json |> member "upper_band" |> to_float;
+        lower_band = json |> member "lower_band" |> to_float;
+        sma = json |> member "sma" |> to_float;
+     }
+  | Error _ ->
+      failwith ("Invalid timestamp format: " ^ timestamp_str)
 
-let is_outside_trading_window (timestamp_str : string) : bool =
-  let ist_tm =
-    Scanf.sscanf timestamp_str "%d-%d-%d %d:%d:%d"
-      (fun year mon day hour min sec ->
-        { Unix.tm_sec = sec;
-          tm_min = min;
-          tm_hour = hour;
-          tm_mday = day;
-          tm_mon = mon - 1;
-          tm_year = year - 1900;
-          tm_wday = 0; tm_yday = 0; tm_isdst = false })
-  in
-  let minutes = ist_tm.Unix.tm_hour * 60 + ist_tm.Unix.tm_min in
-  minutes < (7 * 60 + 55) || minutes > (13 * 60 + 30) (* 1:30 here is candle time, which comes at 1:35 real time, ergo if you take the position it will be closed at 1:50 candle time i.e 1:55 real time, the last candle when the market is open *)
+(* 1:30 here is candle time, which comes at 1:35 real time, ergo if you take the position it will be
+    closed at 1:50 candle time i.e 1:55 real time, the last candle when the market is open *)
+let is_outside_trading_window (timestamp : Ptime.t) : bool =
+  match Ptime.to_date_time timestamp with
+  | ((_, _, _), ((hour, min, _), _)) ->
+    let minutes = hour * 60 + min in
+    minutes < (7 * 60 + 55) || minutes > (13 * 60 + 30)
 
-let is_time (timestamp_str : string) (mins_time : int) : bool =
-  let ist_tm =
-    Scanf.sscanf timestamp_str "%d-%d-%d %d:%d:%d"
-      (fun year mon day hour min sec ->
-        { Unix.tm_sec = sec;
-          tm_min = min;
-          tm_hour = hour;
-          tm_mday = day;
-          tm_mon = mon - 1;
-          tm_year = year - 1900;
-          tm_wday = 0; tm_yday = 0; tm_isdst = false })
-  in
-  let minutes = ist_tm.Unix.tm_hour * 60 + ist_tm.Unix.tm_min in
-  minutes = mins_time
+
+let is_time (timestamp : Ptime.t) (mins_time : int) : bool =
+  match Ptime.to_date_time timestamp with
+  | (_, ((hour, min, _), _)) ->
+    let minutes = hour * 60 + min in
+    minutes = mins_time
   (* (13 * 60 + 55) (* 3:25 pm IST *) *)
 
 let generate_mock_option_chain candle : Option_chain.t Lwt.t =
@@ -229,40 +220,38 @@ let get_option_data (option_chain : Option_chain.t) (expiry : string) (strike : 
       | None -> failwith "Strike not found")
   | None -> failwith "Expiry not found"
 
-(* expiry like 08-05-2025 to unix epoch time *)
-let expiry_to_epoch (date_str : string) : float =
+(* expiry like "08-05-2025" to Ptime.t *)
+let expiry_to_ptime (date_str : string) : Ptime.t option =
   let day = int_of_string (String.sub date_str 0 2) in
   let month = int_of_string (String.sub date_str 3 2) in
   let year = int_of_string (String.sub date_str 6 4) in
-  let tm = {
-    Unix.tm_sec = 0;
-    tm_min = 0;
-    tm_hour = 0;
-    tm_mday = day;
-    tm_mon = month - 1;  (* months are 0-indexed *)
-    tm_year = year - 1900;  (* years since 1900 *)
-    tm_wday = 0;
-    tm_yday = 0;
-    tm_isdst = false;
-  } in
-  fst (Unix.mktime tm)
+  (* Set time to 00:00:00 *)
+  Ptime.of_date_time ((year, month, day), ((0, 0, 0), 0))
 
-let is_weekend tm =
-  tm.tm_wday = 0 || tm.tm_wday = 6  (* Sunday or Saturday *)
+let is_weekend (pt : Ptime.t) : bool =
+  let (_, ((_, _, _), weekday)) = Ptime.to_date_time pt in
+  match weekday with
+  | 6 | 0 -> true  (* Saturday or Sunday *)
+  | _ -> false
 
-let rec count_trading_days from_time to_time =
-  if from_time > to_time then 0
+(* what about the edge case where both the times are on the same day? *)
+let rec count_trading_days (from_time : Ptime.t) (to_time : Ptime.t) : int =
+  if Ptime.is_later ~than:to_time from_time then 0
   else
-    let tm = Unix.localtime from_time in
-    let next_day = from_time +. 86400.0 in (* add 1 day in seconds *)
-    let rest = count_trading_days next_day to_time in
-    if is_weekend tm then rest else 1 + rest
+    match Ptime.Span.of_d_ps (1, 0L) with
+    | Some one_day -> (
+      match Ptime.add_span from_time one_day with
+      | Some next_day ->
+        let rest = count_trading_days next_day to_time in
+        if is_weekend from_time then rest else 1 + rest
+      | None -> 0)
+    | None -> 0
 
 (* assumes that it wouldn't be called in the case where we are on the expiry day because our option_chain.get
    handles that *)
-let get_offset_from_day (today : float) (expiry : float) : float =
+let get_offset_from_day (today : Ptime.t) (expiry : Ptime.t) : float =
   let trading_days = count_trading_days today expiry in
-  Printf.printf "trading days is %d\n" trading_days; 
+  Printf.printf "trading days is %d\n" trading_days;
   match trading_days with
   | 5 -> 250.0
   | 4 -> 200.0
@@ -430,15 +419,27 @@ let on_event (state : 'local_state Strategy.state) (event : event) : 'local_stat
   match event with
   | Market_data_event candle ->
     let%lwt option_chain = Option_chain.get () in
-    let current_time = Unix.gettimeofday () in
+    let current_time = Ptime_clock.now () in
     let current_breach =
       get_breach_type ~candle:candle
     in
     (* Cornerstone: we are assuming the option_chain will always have the expiry to be worked upon *)
     let expiry = current_expiry_from_option_chain ~option_chain:option_chain in 
     Printf.printf " current expiry is %s\n" expiry;
-    let expiry_epoch = expiry_to_epoch expiry in
-    let offset = get_offset_from_day current_time expiry_epoch in
+     (* Wrap the offset calculation in Lwt.catch to handle possible failure *)
+    Lwt.catch
+      (fun () ->
+        match expiry_to_ptime expiry with
+        | Some expiry_ptime ->
+          let offset = get_offset_from_day current_time expiry_ptime in
+          Lwt.return offset
+        | None ->
+          Lwt.fail_with ("Invalid expiry date: " ^ expiry))
+      (fun exn ->
+        (* Log error or handle it, and provide fallback offset *)
+        Printf.eprintf "Error parsing expiry date: %s\n" (Printexc.to_string exn);
+        Lwt.return 0.0)  (* fallback or handle as per your logic *)
+    >>= fun offset ->
     let expired_close_orders = expired_close_orders state.positions option_chain in
     let transition_orders = 
       transition_orders

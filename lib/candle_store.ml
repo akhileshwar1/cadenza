@@ -23,7 +23,7 @@ module Q = struct
 
   let candle_insert_type =
     let open Caqti_type in
-    t2 string (
+    t2 ptime (
       t2 float (
         t2 float (
           t2 float (
