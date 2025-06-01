@@ -1,7 +1,6 @@
 (* bb_strategy.ml *)
 (* Let this module be purely functional always *)
 open Strategy
-open Unix
 open Lwt.Infix
 
 type breach_status = 
@@ -58,11 +57,10 @@ let write_header_to_csv (file : string) =
 
 let write_position_to_csv (file : string) (pos : Position.t) =
   let oc = open_out_gen [Open_creat; Open_append; Open_text] 0o644 file in
-  let tm = Unix.localtime pos.opened_at_epoch in
+  let (year, month, day), ((hour, min, sec), _) = Ptime.to_date_time pos.opened_at in
   let timestamp =
     Printf.sprintf "%04d-%02d-%02d %02d:%02d:%02d"
-      (tm.tm_year + 1900) (tm.tm_mon + 1) tm.tm_mday
-      tm.tm_hour tm.tm_min tm.tm_sec
+      year month day hour min sec
   in
   Printf.fprintf oc "%s,%s,%.2f,%d,%.2f,%d,%.2f,%.2f\n"
     timestamp
@@ -189,11 +187,16 @@ let generate_close_orders_for_position (option_chain : Option_chain.t) (pos : Po
     [order]
 
 (* close orders after 15 minutes/on the 3rd candle *)
-let expired_close_orders (positions : Position.t list) (option_chain: Option_chain.t) : Order.t list =
+let expired_close_orders (current_time : Ptime.t) (positions : Position.t list) (option_chain: Option_chain.t) : Order.t list =
   positions
-  |> List.filter (fun (pos : Position.t) -> (pos.status = Open &&
-                                             match pos.strat_pos with
-                                              | Position.Bb b -> b.candles = 3)) (* (current_time -. pos.opened_at_epoch) >= 600.0 *)
+  |> List.filter (fun (pos : Position.t) ->
+    (pos.status = Open &&
+      match pos.last_sell_time with
+      | Some sell_time ->
+        let diff = Ptime.diff current_time sell_time in
+        let minutes = int_of_float (Ptime.Span.to_float_s diff /. 60.0) in
+        minutes >= 20
+      | None -> false)) (* (current_time -. pos.opened_at_epoch) >= 600.0 *)
   |> List.concat_map (generate_close_orders_for_position option_chain)
 
 (* used in cases where you want to make sure you are not carrying a position overnight *)
@@ -441,7 +444,7 @@ let on_event (state : 'local_state Strategy.state) (event : event) : 'local_stat
         Printf.eprintf "Error parsing expiry date: %s\n" (Printexc.to_string exn);
         Lwt.return 0.0)  (* fallback or handle as per your logic *)
     >>= fun offset ->
-    let expired_close_orders = expired_close_orders state.positions option_chain in
+    let expired_close_orders = expired_close_orders current_time state.positions option_chain in
     let transition_orders = 
       transition_orders
         ~current_breach:current_breach

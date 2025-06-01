@@ -227,7 +227,7 @@ let process_order_update
         let json = json_of_order completed_order in
         Printf.printf " Completed Order is: %s\n%!" (Yojson.Safe.pretty_to_string json);
         let updated_pending_orders = List.filter (fun x -> not (x.broker_order_id = order.broker_order_id)) pending_orders in
-        let updated_positions = Cadenza.Position.update_or_insert_position state.positions completed_order "bb" in
+        let updated_positions = Cadenza.Position.update_or_insert_position state.positions completed_order in
         let updated_state = {state with completed_orders = completed_orders @ [completed_order];
           pending_orders = updated_pending_orders;
           positions = updated_positions} in
