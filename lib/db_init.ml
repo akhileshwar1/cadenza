@@ -71,7 +71,7 @@ let create_option_chain_table =
   Caqti_type.(unit ->. unit)
     {|
     CREATE TABLE IF NOT EXISTS option_chain (
-    timestamp TEXT NOT NULL,
+    timestamp TIMESTAMPTZ NOT NULL,
     expiry TEXT NOT NULL,
     strike REAL NOT NULL,
     option_type TEXT NOT NULL,  -- "CE" or "PE"

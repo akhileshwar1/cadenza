@@ -39,6 +39,8 @@ type status_type =
 (* Order Entity *)
 
 type t = {
+  placed_at : Ptime.t option;
+  executed_at : Ptime.t option;
   tradingsymbol : string;
   exchange : string;
   quantity : int;
@@ -72,6 +74,6 @@ type t = {
 
   val of_yojson : Yojson.Safe.t -> t
 
-  val to_yojson : t -> Yojson.Safe.t
+  (* val to_yojson : t -> Yojson.Safe.t *)
 
   val apply_order_update : t -> t -> t

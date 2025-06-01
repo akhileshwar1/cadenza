@@ -3,7 +3,7 @@ open Option_chain
 let ( let* ) = Lwt_result.bind
 (* Define one row in the option chain DB table *)
 type row = {
-  timestamp : string;
+  timestamp : Ptime.t;
   expiry : string;
   strike : float;
   option_type : string;  (* "CE" or "PE" *)
@@ -18,12 +18,12 @@ type row = {
 }
 
 (* Flatten a full option chain snapshot into a list of DB rows *)
-let flatten ~timestamp (chain : Option_chain.t) : row list =
+let flatten (chain : Option_chain.t) : row list =
   List.concat_map (fun (expiry, strikes) ->
     List.concat_map (fun (strike, options) ->
       List.map (fun (option_type, data : string * option_data) ->
         {
-          timestamp;
+          timestamp = data.timestamp;
           expiry;
           strike;
           option_type;
@@ -46,7 +46,7 @@ module Q = struct
   (* Caqti type for one row *)
   let option_chain_row =
     let open Caqti_type in
-    t12 string string float string string float float float float float float float
+    t12 ptime string float string string float float float float float float float
 
   (* Insert query *)
   let insert =
@@ -71,8 +71,8 @@ let rec iter_result_s f = function
     iter_result_s f xs
 
 (* Insert a full option chain snapshot *)
-let insert (module Conn : Caqti_lwt.CONNECTION) ~timestamp (chain : Option_chain.t) =
-  let rows = flatten ~timestamp chain in
+let insert (module Conn : Caqti_lwt.CONNECTION) (chain : Option_chain.t) =
+  let rows = flatten chain in
   let* () =
     iter_result_s
       (fun row -> Conn.exec Q.insert (to_db_tuple row))

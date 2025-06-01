@@ -59,6 +59,8 @@ let on_event (state : 'local_state Strategy.state) (event : event) : 'local_stat
 
     (* Create the new order based on the candle data *)
     let new_order = {
+      placed_at = Some (Ptime_clock.now ());
+      executed_at = Some (Ptime_clock.now ());
       Order.tradingsymbol = "TCS";  (* Hardcoded for now *)
       exchange = "NSE";
       quantity = 50;

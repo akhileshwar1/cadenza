@@ -54,6 +54,8 @@ let status_to_string = function
 (* Order Entity *)
 
 type t = {
+  placed_at : Ptime.t option;
+  executed_at : Ptime.t option;
   tradingsymbol : string;
   exchange : string;
   quantity : int;
@@ -72,9 +74,17 @@ type t = {
   broker_order_id : string;
 }
 
-(* Helper function to convert an Order.t to a Yojson.Safe.t *)
+(* Helper function to convert an Order.t to a Yojson.Safe.t, caled while sending to OMS. *)
 let json_of_order (order : t) : Yojson.Safe.t =
   `Assoc [
+    ("placed_at", 
+      match order.placed_at with
+      | Some ts -> `String (Ptime.to_rfc3339 ts)
+      | None -> `Null);
+    ("executed_at", 
+      match order.executed_at with
+      | Some ts -> `String (Ptime.to_rfc3339 ts)
+      | None -> `Null);
     ("tradingsymbol", `String order.tradingsymbol);
     ("side", `String (match order.side with | Buy -> "Buy" | Sell -> "Sell"));
     ("validity", `String (match order.validity with | DAY -> "DAY" | IOC -> "IOC"));
@@ -90,7 +100,7 @@ let json_of_order (order : t) : Yojson.Safe.t =
     ("lot", `Int order.lot);
     ("price", `Float order.price);
     ("filled_price", `Float order.filled_price);
-    ("trigger_price", `Float 0.1);
+    ("trigger_price", `Float order.trigger_price);
     ("order_type", `String (match order.order_type with | Limit -> "Limit" | Market -> "Market"));
     ("exchange", `String order.exchange);
     ("strategy_name", `String order.strategy_name);
@@ -107,6 +117,8 @@ let make_order
   ~(strategy_name : string)
   : t =
   {
+    placed_at = Some (Ptime_clock.now ());
+    executed_at = None;
     tradingsymbol;
     exchange = "NSE";
     quantity;
@@ -125,6 +137,12 @@ let make_order
     order_id = generate_order_id ();
   }
 
+let ptime_of_string (s : string) : Ptime.t option =
+  match Ptime.of_rfc3339 s with
+  | Ok (t, _, _) -> Some t
+  | Error _ -> None
+
+(* called for order update*)
 let of_yojson (json : Yojson.Safe.t) : t =
   Printf.printf "in yojson\n%!";
 
@@ -178,6 +196,9 @@ let of_yojson (json : Yojson.Safe.t) : t =
   in
 
   {
+    placed_at = ptime_of_string (safe to_string "placed_at"); (* will be None, since order update has no memory of
+                                                                 what happened, directly relayed from broker *)
+    executed_at  = ptime_of_string (safe to_string "executed_at");
     tradingsymbol = safe to_string "tradingsymbol";
     exchange = safe to_string "exchange";
     quantity = safe to_int "quantity";
@@ -197,49 +218,49 @@ let of_yojson (json : Yojson.Safe.t) : t =
   }
 
 
-let to_yojson (order : t) : Yojson.Safe.t =
-  let string_of_side = function
-    | Buy -> "Buy"
-    | Sell -> "Sell"
-  in
+(* let to_yojson (order : t) : Yojson.Safe.t = *)
+(*   let string_of_side = function *)
+(*     | Buy -> "Buy" *)
+(*     | Sell -> "Sell" *)
+(*   in *)
 
-  let string_of_order_type = function
-    | Limit -> "Limit"
-    | Market -> "Market"
-  in
+(*   let string_of_order_type = function *)
+(*     | Limit -> "Limit" *)
+(*     | Market -> "Market" *)
+(*   in *)
 
-  let string_of_product = function
-    | MIS -> "MIS"
-    | CNC -> "CNC"
-    | NRML -> "NRML"
-  in
+(*   let string_of_product = function *)
+(*     | MIS -> "MIS" *)
+(*     | CNC -> "CNC" *)
+(*     | NRML -> "NRML" *)
+(*   in *)
 
-  let string_of_validity = function
-    | DAY -> "DAY"
-    | IOC -> "IOC"
-  in
+(*   let string_of_validity = function *)
+(*     | DAY -> "DAY" *)
+(*     | IOC -> "IOC" *)
+(*   in *)
 
-  let base_fields = [
-    "tradingsymbol", `String order.tradingsymbol;
-    "exchange", `String order.exchange;
-    "quantity", `Int order.quantity;
-    "price", `Float order.price;
-    "trigger_price", `Float order.trigger_price;
-    "side", `String (string_of_side order.side);
-    "lot", `Int order.lot;
-    "order_type", `String (string_of_order_type order.order_type);
-    "product", `String (string_of_product order.product);
-    "validity", `String (string_of_validity order.validity);
-    "order_id", `String order.order_id;
-    "broker_order_id" , `String order.broker_order_id
-  ] in
+(*   let base_fields = [ *)
+(*     "tradingsymbol", `String order.tradingsymbol; *)
+(*     "exchange", `String order.exchange; *)
+(*     "quantity", `Int order.quantity; *)
+(*     "price", `Float order.price; *)
+(*     "trigger_price", `Float order.trigger_price; *)
+(*     "side", `String (string_of_side order.side); *)
+(*     "lot", `Int order.lot; *)
+(*     "order_type", `String (string_of_order_type order.order_type); *)
+(*     "product", `String (string_of_product order.product); *)
+(*     "validity", `String (string_of_validity order.validity); *)
+(*     "order_id", `String order.order_id; *)
+(*     "broker_order_id" , `String order.broker_order_id *)
+(*   ] in *)
 
-  let optional_fields =
-    [ "status", Option.map (fun s -> `String (status_to_string s)) order.status ]
-    |> List.filter_map (fun (k, v_opt) -> Option.map (fun v -> k, v) v_opt)
-  in
+(*   let optional_fields = *)
+(*     [ "status", Option.map (fun s -> `String (status_to_string s)) order.status ] *)
+(*     |> List.filter_map (fun (k, v_opt) -> Option.map (fun v -> k, v) v_opt) *)
+(*   in *)
 
-  `Assoc (base_fields @ optional_fields)
+(*   `Assoc (base_fields @ optional_fields) *)
 
 let total_cost order1 order2 =
   (((float_of_int order1.filled_quantity) *. order1.filled_price) +. ((float_of_int order2.filled_quantity) *. order2.filled_price))

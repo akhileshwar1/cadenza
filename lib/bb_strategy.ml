@@ -124,6 +124,7 @@ let generate_mock_option_chain candle : Option_chain.t Lwt.t =
         -. max 0.0 (1.0 -. (moneyness /. 1000.0)) in
     let premium = max 5.0 (100.0 -. moneyness /. 2.0) in
     let option: Option_chain.option_data = {
+      timestamp = Ptime_clock.now ();
       symbol = "NIFTY50"; 
       ltp = premium;
       delta = delta;

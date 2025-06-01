@@ -188,7 +188,7 @@ let create_message_handler
             if (option_chain != [] && candle.close_price != -1.0) then
               with_db_conn current_strategy_ref (fun conn ->
                 Printf.printf "in insert chain\n%!";
-                let* res = Cadenza.Option_chain_store.insert conn ~timestamp:candle.timestamp option_chain in
+                let* res = Cadenza.Option_chain_store.insert conn option_chain in
                 match res with
                 | Ok _ -> 
                   Printf.printf "inserted option chain\n%!";

@@ -1,5 +1,6 @@
 
 type option_data = {
+  timestamp : Ptime.t;
   symbol : string;
   ltp : float;
   delta : float;
