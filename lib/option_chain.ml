@@ -1,6 +1,7 @@
 open Lwt.Infix
 open Cohttp_lwt_unix
 open Yojson.Safe.Util
+open Connector
 
 type option_data = {
   timestamp : Ptime.t;
@@ -102,10 +103,12 @@ let find_next_expiry expiry_data today =
       Some (safe_to_string "expiry" hd)
 
 let uri_with_expiry expiry =
-  Uri.of_string (Printf.sprintf "http://localhost:8000/option-chain?symbol=NSE:NIFTY50-INDEX&expiry=%s" expiry)
+  let base_uri = (get_env_or_default "OPT_CHAIN_URI" "http://localhost:8003/option-chain?symbol=NSE:NIFTY50-INDEX") in
+  let full_uri = Printf.sprintf "%s&expiry=%s" base_uri expiry in
+  Uri.of_string full_uri
 
 let get () : t Lwt.t =
-  let base_uri = Uri.of_string "http://localhost:8000/option-chain?symbol=NSE:NIFTY50-INDEX" in
+  let base_uri = Uri.of_string (get_env_or_default "OPT_CHAIN_URI" "http://localhost:8003/option-chain?symbol=NSE:NIFTY50-INDEX") in
   Client.get base_uri >>= fun (_, body) ->
   Cohttp_lwt.Body.to_string body >>= fun body_str ->
   let json = Yojson.Safe.from_string body_str in
