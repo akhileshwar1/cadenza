@@ -76,4 +76,5 @@ type t = {
 
   (* val to_yojson : t -> Yojson.Safe.t *)
 
-  val apply_order_update : t -> t -> t
+  val apply_order_update: t -> t -> t
+  val ptime_of_string : string -> Ptime.t option
