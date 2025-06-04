@@ -232,11 +232,19 @@ let expiry_to_ptime (date_str : string) : Ptime.t option =
   (* Set time to 00:00:00 *)
   Ptime.of_date_time ((year, month, day), ((0, 0, 0), 0))
 
+let weekday_of_ptime (pt : Ptime.t) : int =
+  match Ptime.to_float_s pt with
+  | float_ts ->
+    let unix_tm = Unix.gmtime float_ts in
+    (* tm_wday: 0 = Sunday, 1 = Monday, ..., 6 = Saturday *)
+    unix_tm.Unix.tm_wday
+
 let is_weekend (pt : Ptime.t) : bool =
-  let (_, ((_, _, _), weekday)) = Ptime.to_date_time pt in
-  match weekday with
-  | 6 | 0 -> true  (* Saturday or Sunday *)
-  | _ -> false
+  match Ptime.to_float_s pt with
+  | float_ts ->
+    let weekday = (Unix.gmtime float_ts).Unix.tm_wday in
+    Printf.printf "weekday for %s is %d\n%!" (Ptime.to_rfc3339 pt) weekday;
+    weekday = 0 || weekday = 6  (* Sunday or Saturday *)
 
 (* what about the edge case where both the times are on the same day? *)
 let rec count_trading_days (from_time : Ptime.t) (to_time : Ptime.t) : int =
@@ -423,7 +431,7 @@ let on_event (state : 'local_state Strategy.state) (event : event) : 'local_stat
   match event with
   | Market_data_event candle ->
     let%lwt option_chain = Option_chain.get () in
-    let current_time = Ptime_clock.now () in
+    let current_time =  candle.timestamp in
     let current_breach =
       get_breach_type ~candle:candle
     in
@@ -470,7 +478,7 @@ let on_event (state : 'local_state Strategy.state) (event : event) : 'local_stat
     } in
 
     (* write all positions to csv at the end, hopefully all of them are closed. *)
-    if is_time candle.timestamp (13 * 60 + 55) then (
+    if is_time current_time (13 * 60 + 55) then (
       write_header_to_csv "pnl.csv";
       List.iter (fun pos -> write_position_to_csv "pnl.csv" pos) state.positions;
       Lwt.return new_state
