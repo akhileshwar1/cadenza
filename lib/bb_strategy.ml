@@ -93,14 +93,12 @@ let json_to_candle (json : Yojson.Safe.t) : candle =
   | Error _ ->
       failwith ("Invalid timestamp format: " ^ timestamp_str)
 
-(* 1:30 here is candle time, which comes at 1:35 real time, ergo if you take the position it will be
-    closed at 1:50 candle time i.e 1:55 real time, the last candle when the market is open *)
+(* candle timestamps aren't delayed now *)
 let is_outside_trading_window (timestamp : Ptime.t) : bool =
   match Ptime.to_date_time timestamp with
   | ((_, _, _), ((hour, min, _), _)) ->
     let minutes = hour * 60 + min in
-    minutes < (7 * 60 + 55) || minutes > (13 * 60 + 30)
-
+    minutes < (4 * 60) || minutes > (9 * 60 + 35) (* first posn at 8:00 am dst and last at 1:35pm dst *)
 
 let is_time (timestamp : Ptime.t) (mins_time : int) : bool =
   match Ptime.to_date_time timestamp with
@@ -243,7 +241,7 @@ let is_weekend (pt : Ptime.t) : bool =
   match Ptime.to_float_s pt with
   | float_ts ->
     let weekday = (Unix.gmtime float_ts).Unix.tm_wday in
-    Printf.printf "weekday for %s is %d\n%!" (Ptime.to_rfc3339 pt) weekday;
+    (* Printf.printf "weekday for %s is %d\n%!" (Ptime.to_rfc3339 pt) weekday; *)
     weekday = 0 || weekday = 6  (* Sunday or Saturday *)
 
 (* what about the edge case where both the times are on the same day? *)
@@ -478,7 +476,7 @@ let on_event (state : 'local_state Strategy.state) (event : event) : 'local_stat
     } in
 
     (* write all positions to csv at the end, hopefully all of them are closed. *)
-    if is_time current_time (13 * 60 + 55) then (
+    if is_time current_time (10 * 60) then (
       write_header_to_csv "pnl.csv";
       List.iter (fun pos -> write_position_to_csv "pnl.csv" pos) state.positions;
       Lwt.return new_state
