@@ -44,7 +44,7 @@ let initial_local_state = {
             close_price = 0.0; upper_band = 0.0; lower_band = 0.0; sma = 0.0};
   option_chain = [];
   lots_sold_for_current_candle = 0;
-  candle_lots_limit = 10;
+  candle_lots_limit = 40;
   last_candle_timestamp = None;
 }
 
@@ -339,7 +339,7 @@ let generate_upper_breach_orders
 
   let call_strike = find_nearest_strike (current_price +. offset) option_chain in
   let call_data = get_option_data option_chain expiry call_strike "CE" in
-  let call_qty = 750 in
+  let call_qty = 150 in
   let call_lots, call_adj_qty = lots_and_quantity 75 call_qty in
   let call_delta = abs_float call_data.delta in
   let call_delta_exposure = call_delta *. float_of_int call_adj_qty in
@@ -391,7 +391,7 @@ let generate_lower_breach_orders
 
   let put_strike = find_nearest_strike (current_price -. offset) option_chain in
   let put_data = get_option_data option_chain expiry put_strike "PE" in
-  let put_qty = 750 in
+  let put_qty = 150 in
   let put_lots, put_adj_qty = lots_and_quantity 75 put_qty in
   let put_delta = abs_float put_data.delta in
   let put_delta_exposure = put_delta *. float_of_int put_adj_qty in
@@ -473,7 +473,7 @@ let transition_orders
       | _, Between -> 
       Printf.printf "NO breach! %! %f %f %f \n %!" candle.lower_band candle.close_price candle.upper_band;
       []
-      (* generate_upper_breach_orders ~option_chain ~candle ~offset *)
+      (* generate_upper_breach_orders ~option_chain ~candle ~offset ~positions *)
 
 let get_breach_type ~candle =
   if candle.close_price > candle.upper_band then Upper
@@ -494,6 +494,9 @@ let is_new_candle ~previous ~current =
       (date, h, m / 5)
     in
     bucket prev <> bucket current
+
+let total_lots_sold orders : int =
+  List.fold_left (fun acc (order:Order.t)  -> acc + order.lot) 0 orders
 
 (* Process the event and transform the state *)
 let on_event (state : 'local_state Strategy.state) (event : event) : 'local_state Strategy.state Lwt.t =
@@ -548,7 +551,7 @@ let on_event (state : 'local_state Strategy.state) (event : event) : 'local_stat
                             last_breach = current_breach;
                             candle = candle;
                             option_chain = option_chain;
-                            lots_sold_for_current_candle = lots_sold_for_current_candle + List.length transition_orders;
+                            lots_sold_for_current_candle = lots_sold_for_current_candle + total_lots_sold transition_orders;
                             last_candle_timestamp = Some current_time} in
     let new_state = {
       state with created_orders = all_orders;
