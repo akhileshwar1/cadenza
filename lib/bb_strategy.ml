@@ -1,6 +1,6 @@
 (* bb_strategy.ml *)
 (* Let this module be purely functional always *)
-open Strategy
+(* open Strategy *)
 open Lwt.Infix
 
 type breach_status = 
@@ -285,8 +285,12 @@ let convert_date_to_symbol (date_str : string) : string =
   | _ -> failwith "Invalid date format"
 
 (* Check if the symbol has a sell within the last 10 seconds *)
-let has_recent_sell ~positions ~symbol ~now : bool =
-  List.exists (fun pos ->
+let has_recent_sell
+  ~(positions : Position.t list)
+  ~(symbol : string)
+  ~(now : Ptime.t)
+  : bool =
+  List.exists (fun (pos : Position.t) ->
     pos.symbol = symbol &&
     match pos.last_sell_time with
     | Some last_time ->
@@ -295,7 +299,15 @@ let has_recent_sell ~positions ~symbol ~now : bool =
   ) positions
 
 (* Generate order only if no recent sell for the symbol *)
-let generate_if_not_recently_sold ~symbol ~qty ~lots ~price ~side ~positions ~now : Order.t list =
+let generate_if_not_recently_sold
+  ~(symbol : string)
+  ~(qty : int)
+  ~(lots : int)
+  ~(price : float)
+  ~(side : Order.side)
+  ~(positions : Position.t list)
+  ~(now : Ptime.t)
+  : Order.t list =
   if has_recent_sell ~positions ~symbol ~now then (
     Printf.printf "Skipping order for %s: recently sold.\n%!" symbol;
     []
@@ -308,7 +320,12 @@ let generate_if_not_recently_sold ~symbol ~qty ~lots ~price ~side ~positions ~no
       ~side: side
       ~strategy_name:"bb"]
 
-let generate_upper_breach_orders ~option_chain ~candle ~offset ~positions : Order.t list =
+let generate_upper_breach_orders
+  ~(option_chain : Option_chain.t)
+  ~(candle : candle)
+  ~(offset : float)
+  ~(positions : Position.t list)
+  : Order.t list =
   let expiry =
     match option_chain with
     | first:: _ -> fst first
@@ -356,7 +373,12 @@ let generate_upper_breach_orders ~option_chain ~candle ~offset ~positions : Orde
   call_orders @ put_orders
  
   
-let generate_lower_breach_orders ~option_chain ~candle ~offset ~positions : Order.t list =
+let generate_lower_breach_orders
+  ~(option_chain : Option_chain.t)
+  ~(candle : candle)
+  ~(offset : float)
+  ~(positions : Position.t list)
+  : Order.t list =
   let expiry =
     match option_chain with
     | first:: _ -> fst first
@@ -404,7 +426,14 @@ let generate_lower_breach_orders ~option_chain ~candle ~offset ~positions : Orde
   call_orders @ put_orders
 
 
-let transition_orders ~current_breach ~last_breach ~candle ~option_chain ~offset ~positions =
+let transition_orders
+  ~(current_breach : breach_status)
+  ~(last_breach : breach_status)
+  ~(candle : candle)
+  ~(option_chain : Option_chain.t)
+  ~(offset : float)
+  ~(positions : Position.t list)
+  : Order.t list=
   if is_outside_trading_window candle.timestamp then
     []
   else
@@ -443,13 +472,6 @@ let transition_orders ~current_breach ~last_breach ~candle ~option_chain ~offset
       Printf.printf "NO breach! %! %f %f %f \n %!" candle.lower_band candle.close_price candle.upper_band;
       []
       (* generate_upper_breach_orders ~option_chain ~candle ~offset *)
-
-(* close all open orders, don't want no open positions into the night, for the night is dark *)
-(* let close_time_orders ~candle ~positions ~option_chain = *)
-(*   if is_time candle.timestamp (13 * 60 + 50) then (* 5 mins before day close *) *)
-(*     close_all_open_orders positions option_chain *)
-(*   else *)
-(*     [] *)
 
 let get_breach_type ~candle =
   if candle.close_price > candle.upper_band then Upper
@@ -491,24 +513,18 @@ let on_event (state : 'local_state Strategy.state) (event : event) : 'local_stat
     >>= fun offset ->
     let expired_close_orders = expired_close_orders current_time state.positions option_chain in
     let transition_orders = 
-      (if lots_sold_for_current_candle < candle_lots_limit then
-        transition_orders
+      if lots_sold_for_current_candle < candle_lots_limit then
+        (transition_orders
           ~current_breach:current_breach
           ~last_breach:state.local_state.last_breach
           ~candle:candle
           ~option_chain:option_chain
           ~offset:offset
-          ~positions:state.positions
+          ~positions:state.positions)
         else
-          [])
+          []
     in
-    (* let close_time_orders = *)
-    (*   close_time_orders *)
-    (*     ~candle:candle *)
-    (*     ~positions:state.positions *)
-    (*     ~option_chain:option_chain in *)
-    (* bug here, what if the expired closed orders/trasnsition orders, generated the same orders as close time orders *)
-    
+        
     let all_orders = expired_close_orders @ transition_orders @ state.created_orders (* @ close_time_orders *) in
     let positions = Position.update_positions_with_option_chain option_chain state.positions in
     let new_local_state = { state.local_state with
