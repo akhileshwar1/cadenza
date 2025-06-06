@@ -27,6 +27,7 @@ type local_state = {
   option_chain : Option_chain.t;
   lots_sold_for_current_candle : int;
   candle_lots_limit : int;
+  last_candle_timestamp : Ptime.t option;
 } 
 
 (* Config specific to AlternateStrategy *)
@@ -44,6 +45,7 @@ let initial_local_state = {
   option_chain = [];
   lots_sold_for_current_candle = 0;
   candle_lots_limit = 10;
+  last_candle_timestamp = None;
 }
 
 let write_header_to_csv (file : string) =
@@ -483,6 +485,16 @@ let current_expiry_from_option_chain ~option_chain =
   | first:: _ -> fst first (*takes the expiry out of (expiry, strikes) pair *)
   | [] -> ""
 
+let is_new_candle ~previous ~current =
+  match previous with
+  | None -> true
+  | Some prev ->
+    let bucket t =
+      let (date, ((h, m, _), _)) = Ptime.to_date_time t in
+      (date, h, m / 5)
+    in
+    bucket prev <> bucket current
+
 (* Process the event and transform the state *)
 let on_event (state : 'local_state Strategy.state) (event : event) : 'local_state Strategy.state Lwt.t =
   match event with
@@ -490,7 +502,12 @@ let on_event (state : 'local_state Strategy.state) (event : event) : 'local_stat
     let%lwt option_chain = Option_chain.get () in
     let current_time =  candle.timestamp in
     let candle_lots_limit = state.local_state.candle_lots_limit in
-    let lots_sold_for_current_candle = state.local_state.lots_sold_for_current_candle in
+    let last_candle_ts = state.local_state.last_candle_timestamp in
+    let new_candle = is_new_candle ~previous:last_candle_ts ~current:current_time in
+    let lots_sold_for_current_candle =
+      if new_candle then 0
+      else state.local_state.lots_sold_for_current_candle
+    in
     let current_breach =
       get_breach_type ~candle:candle
     in
@@ -531,7 +548,8 @@ let on_event (state : 'local_state Strategy.state) (event : event) : 'local_stat
                             last_breach = current_breach;
                             candle = candle;
                             option_chain = option_chain;
-                            lots_sold_for_current_candle = lots_sold_for_current_candle + List.length transition_orders} in
+                            lots_sold_for_current_candle = lots_sold_for_current_candle + List.length transition_orders;
+                            last_candle_timestamp = Some current_time} in
     let new_state = {
       state with created_orders = all_orders;
       local_state = new_local_state;
