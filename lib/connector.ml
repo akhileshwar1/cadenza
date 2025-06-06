@@ -11,6 +11,7 @@ open Websocket_lwt_unix
 (* open Cohttp *)
 (* open Cohttp_lwt_unix *)
 
+
 (* loads env var from the environment the process is running under *)
 let get_env_or_default var_name default =
   match Sys.getenv_opt var_name with
@@ -103,22 +104,35 @@ let connect_to_data_stream (uri_string : string) (on_raw_message : raw_message_c
     | _ -> failwith (Printf.sprintf "Unsupported URI scheme: %s. Must be ws or wss." (match scheme with Some s -> s | None -> "none"))
   in
 
+  let (message_stream, push_message) = Lwt_stream.create () in
+  let rec consume_messages () =
+    Lwt_stream.get message_stream >>= function
+    | Some msg ->
+      (* Call your existing safe_update-wrapped handler here *)
+      Printf.printf "raw message is %s\n%!" msg;
+      on_raw_message msg >>= fun () ->
+      (* Lwt.async (fun () -> on_raw_message msg); *)
+      consume_messages ()
+    | None -> Lwt.return_unit
+  in
+
   (* Define the recursive function to continuously read messages *)
   let rec read_loop (conn : conn) : unit Lwt.t =
     Lwt.catch
       (fun () ->
-        Lwt_io.printf " in read loop " >>= fun () ->
+        (* Lwt_io.printf " in read loop " >>= fun () -> *)
         (* Read one frame from the websocket - Disambiguated call *)
         Websocket_lwt_unix.read conn >>= fun frame ->
         (* Optional: Log received frame details for debugging *)
-        Lwt_io.printf "<- %s\n" (Websocket.Frame.show frame) >>= fun () ->
+        (* Lwt_io.printf "<- %s\n" (Websocket.Frame.show frame) >>= fun () -> *)
 
         match frame.opcode with
         | Websocket.Frame.Opcode.Text | Websocket.Frame.Opcode.Binary ->
           (* Received a text or binary message *)
           (* Lwt_io.printf "Raw message (length %d)\n" (String.length frame.content) >>= fun () -> *)
           (* Call the user-provided callback with the RAW message content *)
-          on_raw_message frame.content >>= fun () ->
+          push_message (Some frame.content); 
+          (* Lwt.async (fun () -> on_raw_message frame.content); *)
           read_loop conn (* Continue reading *)
 
         | Websocket.Frame.Opcode.Ping ->
@@ -227,6 +241,9 @@ let connect_to_data_stream (uri_string : string) (on_raw_message : raw_message_c
 
 
       Lwt_io.printf "WebSocket connection established.\n" >>= fun () ->
+
+      Lwt.async consume_messages;
+      Printf.printf "consume_messages started\n%!";
       if login then begin
         Lwt.async (fun () -> read_loop conn);  (* Start reading ASAP *)
         let login_frame = Websocket.Frame.create ~opcode:Text ~content:login_msg () in
