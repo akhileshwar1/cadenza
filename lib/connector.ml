@@ -110,8 +110,8 @@ let connect_to_data_stream (uri_string : string) (on_raw_message : raw_message_c
     | Some msg ->
       (* Call your existing safe_update-wrapped handler here *)
       Printf.printf "raw message is %s\n%!" msg;
-      on_raw_message msg >>= fun () ->
-      (* Lwt.async (fun () -> on_raw_message msg); *)
+      (* on_raw_message msg >>= fun () -> *)
+      Lwt.async (fun () -> on_raw_message msg);
       consume_messages ()
     | None -> Lwt.return_unit
   in
