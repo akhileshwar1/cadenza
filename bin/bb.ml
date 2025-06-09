@@ -172,7 +172,7 @@ let create_message_handler
             send_order_to_oms oms_uri order current_strategy_ref (* Call the new function *)
           ) orders >>= fun () ->
           if (candle.close_price != -1.0) then
-            with_db_conn current_strategy_ref (fun conn ->
+              with_db_conn current_strategy_ref (fun conn ->
               Printf.printf "in insert candle\n%!";
               let* res = Cadenza.Candle_store.insert conn candle in
               match res with
@@ -182,7 +182,7 @@ let create_message_handler
               | Error err ->
                 Logs.err (fun m -> m "DB update failed: %a" Caqti_error.pp err);
                 Lwt.return_unit
-            )
+              )
           else Lwt.return_unit;
           >>= fun () ->
             if (option_chain != [] && candle.close_price != -1.0) then
@@ -262,7 +262,8 @@ let process_order_update
         let pending_order = List.find (fun x -> x.broker_order_id = order.broker_order_id) pending_orders in
         let json = json_of_order pending_order in
         Printf.printf " Updated Pending Order is: %s\n%!" (Yojson.Safe.pretty_to_string json);
-        let updated_state = { state with pending_orders = updated_pending_orders} in
+        let updated_positions = Cadenza.Position.update_or_insert_position state.positions pending_order in
+        let updated_state = { state with pending_orders = updated_pending_orders; positions = updated_positions } in
         strategy_ref := Cadenza.Strategy.update_state !strategy_ref updated_state;
         let* () =
           with_db_conn strategy_ref (fun conn ->

@@ -196,7 +196,7 @@ let of_yojson (json : Yojson.Safe.t) : t =
   in
 
   {
-    placed_at = ptime_of_string (safe to_string "placed_at"); (* will be None, since order update has no memory of
+    placed_at = None; (* will be None, since order update has no memory of
                                                                  what happened, directly relayed from broker *)
     executed_at  = ptime_of_string (safe to_string "executed_at");
     tradingsymbol = safe to_string "tradingsymbol";
@@ -279,6 +279,8 @@ let apply_order_update order_update order =
     {order with 
       filled_quantity = updated_quantity;
       filled_price = updated_filled_price;
-      status = order_update.status}
+      status = order_update.status;
+      executed_at = order_update.executed_at;
+      broker_order_id = order_update.broker_order_id}
   else
     order
