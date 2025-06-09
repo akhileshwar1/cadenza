@@ -145,7 +145,7 @@ let update_position_from_sell_order (pos : t) (order : Order.t) : t =
     closed_at = closed_at;
   }
 
-(* this is position over all "completed" orders for a particular symbol, meant for partial orders too now. *)
+(* this is position over all "completed" orders for a particular symbol, not meant for partial orders. *)
 let update_or_insert_position (positions : t list) (order : Order.t) : t list =
   let symbol = order.tradingsymbol in
   let side = order.side in

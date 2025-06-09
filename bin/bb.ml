@@ -262,8 +262,7 @@ let process_order_update
         let pending_order = List.find (fun x -> x.broker_order_id = order.broker_order_id) pending_orders in
         let json = json_of_order pending_order in
         Printf.printf " Updated Pending Order is: %s\n%!" (Yojson.Safe.pretty_to_string json);
-        let updated_positions = Cadenza.Position.update_or_insert_position state.positions pending_order in
-        let updated_state = { state with pending_orders = updated_pending_orders; positions = updated_positions } in
+        let updated_state = { state with pending_orders = updated_pending_orders } in
         strategy_ref := Cadenza.Strategy.update_state !strategy_ref updated_state;
         let* () =
           with_db_conn strategy_ref (fun conn ->
