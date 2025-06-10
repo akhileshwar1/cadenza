@@ -25,8 +25,10 @@ type local_state = {
   last_breach : breach_status;
   candle : candle;
   option_chain : Option_chain.t;
-  lots_sold_for_current_candle : int;
+  candle_lots_sold : int;
+  day_lots_sold : int;
   candle_lots_limit : int;
+  day_lots_limit : int;
   last_candle_timestamp : Ptime.t option;
 } 
 
@@ -43,7 +45,9 @@ let initial_local_state = {
   candle = {timestamp = Ptime_clock.now (); open_price = 0.0; high_price = 0.0; low_price = 0.0;
             close_price = 0.0; upper_band = 0.0; lower_band = 0.0; sma = 0.0};
   option_chain = [];
-  lots_sold_for_current_candle = 0;
+  candle_lots_sold = 0;
+  day_lots_sold = 0;
+  day_lots_limit = 140;
   candle_lots_limit = 39;
   last_candle_timestamp = None;
 }
@@ -520,12 +524,14 @@ let on_event (state : 'local_state Strategy.state) (event : event) : 'local_stat
     let%lwt option_chain = Option_chain.get () in
     let current_time =  candle.timestamp in
     let candle_lots_limit = state.local_state.candle_lots_limit in
+    let day_lots_limit = state.local_state.day_lots_limit in
+    let day_lots_sold = state.local_state.day_lots_sold in
     let last_candle_ts = state.local_state.last_candle_timestamp in
     let new_candle = is_new_candle ~previous:last_candle_ts ~current:current_time in
-    let lots_sold_for_current_candle =
+    let candle_lots_sold =
       if new_candle then
         0
-      else state.local_state.lots_sold_for_current_candle
+      else state.local_state.candle_lots_sold
     in
     let current_breach =
       get_breach_type ~candle:candle
@@ -548,9 +554,9 @@ let on_event (state : 'local_state Strategy.state) (event : event) : 'local_stat
         Lwt.return 0.0)  (* fallback or handle as per your logic *)
     >>= fun offset ->
     let expired_close_orders = expired_close_orders current_time state.positions option_chain in
-    Printf.printf "lots sold %d and candle lots limit %d " lots_sold_for_current_candle candle_lots_limit; 
+    Printf.printf "lots sold %d and candle lots limit %d " candle_lots_sold candle_lots_limit; 
     let transition_orders = 
-      if lots_sold_for_current_candle < candle_lots_limit then
+      if candle_lots_sold < candle_lots_limit && day_lots_limit < day_lots_sold then
         (transition_orders
           ~current_breach:current_breach
           ~last_breach:state.local_state.last_breach
@@ -568,7 +574,8 @@ let on_event (state : 'local_state Strategy.state) (event : event) : 'local_stat
                             last_breach = current_breach;
                             candle = candle;
                             option_chain = option_chain;
-                            lots_sold_for_current_candle = lots_sold_for_current_candle + total_lots_sold transition_orders;
+                            candle_lots_sold = candle_lots_sold + total_lots_sold transition_orders;
+                            day_lots_sold = day_lots_sold + total_lots_sold transition_orders;
                             last_candle_timestamp = Some current_time} in
     let new_state = {
       state with created_orders = all_orders;
