@@ -44,7 +44,7 @@ let initial_local_state = {
             close_price = 0.0; upper_band = 0.0; lower_band = 0.0; sma = 0.0};
   option_chain = [];
   lots_sold_for_current_candle = 0;
-  candle_lots_limit = 40;
+  candle_lots_limit = 39;
   last_candle_timestamp = None;
 }
 
@@ -354,7 +354,7 @@ let generate_upper_breach_orders
 
   let call_strike = find_nearest_strike (current_price +. offset) option_chain in
   let call_data = get_option_data option_chain expiry call_strike "CE" in
-  let call_qty = 300 in
+  let call_qty = 150 in
   let call_lots, call_adj_qty = lots_and_quantity 75 call_qty in
   let call_delta = abs_float call_data.delta in
   let call_delta_exposure = call_delta *. float_of_int call_adj_qty in
@@ -406,7 +406,7 @@ let generate_lower_breach_orders
 
   let put_strike = find_nearest_strike (current_price -. offset) option_chain in
   let put_data = get_option_data option_chain expiry put_strike "PE" in
-  let put_qty = 300 in
+  let put_qty = 150 in
   let put_lots, put_adj_qty = lots_and_quantity 75 put_qty in
   let put_delta = abs_float put_data.delta in
   let put_delta_exposure = put_delta *. float_of_int put_adj_qty in
@@ -523,7 +523,8 @@ let on_event (state : 'local_state Strategy.state) (event : event) : 'local_stat
     let last_candle_ts = state.local_state.last_candle_timestamp in
     let new_candle = is_new_candle ~previous:last_candle_ts ~current:current_time in
     let lots_sold_for_current_candle =
-      if new_candle then 0
+      if new_candle then
+        0
       else state.local_state.lots_sold_for_current_candle
     in
     let current_breach =
@@ -547,6 +548,7 @@ let on_event (state : 'local_state Strategy.state) (event : event) : 'local_stat
         Lwt.return 0.0)  (* fallback or handle as per your logic *)
     >>= fun offset ->
     let expired_close_orders = expired_close_orders current_time state.positions option_chain in
+    Printf.printf "lots sold %d and candle lots limit %d " lots_sold_for_current_candle candle_lots_limit; 
     let transition_orders = 
       if lots_sold_for_current_candle < candle_lots_limit then
         (transition_orders
