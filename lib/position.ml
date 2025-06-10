@@ -92,7 +92,7 @@ let update_position_from_buy_order (pos : t) (order : Order.t) : t =
     value = value; 
     side = side;
     opened_at = now; (* lets us handle the loading case, where close should be on t2 + 15 *)
-    last_buy_time = Some now;
+    last_buy_time = order.executed_at;
     pnl = pnl;
     status = status;
     closed_at = closed_at;
@@ -139,7 +139,7 @@ let update_position_from_sell_order (pos : t) (order : Order.t) : t =
     value = value;
     side = side;
     opened_at = now;
-    last_sell_time = Some now;
+    last_sell_time = order.executed_at;
     pnl = pnl;
     status = status;
     closed_at = closed_at;
@@ -204,7 +204,7 @@ let update_positions_with_option_chain
     (fun pos ->
       match find_option_data (extract_strike pos.symbol) option_chain with
       | Some data ->
-        Printf.printf " found position symbol from option chain\n%!";
+        (* Printf.printf " found position symbol from option chain\n%!"; *)
         let prev_value = pos.value in
         let value = float_of_int pos.net_qty *. data.ltp in
         Printf.printf "Updating position of symbol %s with option chain value from %f to %f\n%!" pos.symbol prev_value value;
