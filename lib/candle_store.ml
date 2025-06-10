@@ -56,7 +56,7 @@ let to_db_tuple (c : candle) =
               (c.lower_band, c.sma)))))))
 
 let insert (module Conn : Caqti_lwt.CONNECTION) (candle : candle) =
-  Printf.printf "in q insert\n%!";
+  (* Printf.printf "in q insert\n%!"; *)
   let* () = Conn.exec Q.insert (to_db_tuple candle) in
   Conn.commit ()
 

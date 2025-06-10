@@ -179,7 +179,7 @@ let generate_close_orders_for_position (option_chain : Option_chain.t) (pos : Po
       | Some data -> data.ltp
       | None -> 0.
     in 
-    let order : Order.t = 
+    let orders : Order.t list = 
       Order.make_order 
         ~tradingsymbol:pos.symbol
         ~quantity:(abs adj_quantity)
@@ -188,7 +188,7 @@ let generate_close_orders_for_position (option_chain : Option_chain.t) (pos : Po
         ~side:side
         ~strategy_name:"bb"
     in
-    [order]
+    orders
 
 (* close orders after 15 minutes/on the 3rd candle *)
 let expired_close_orders (current_time : Ptime.t) (positions : Position.t list) (option_chain: Option_chain.t) : Order.t list =
@@ -267,7 +267,7 @@ let rec count_trading_days (from_time : Ptime.t) (to_time : Ptime.t) : int =
    handles that *)
 let get_offset_from_day (today : Ptime.t) (expiry : Ptime.t) : float =
   let trading_days = count_trading_days today expiry in
-  Printf.printf "trading days is %d\n" trading_days;
+  (* Printf.printf "trading days is %d\n" trading_days; *)
   match trading_days with
   | 5 -> 250.0
   | 4 -> 200.0
@@ -296,7 +296,22 @@ let has_recent_sell
     pos.symbol = symbol &&
     match pos.last_sell_time with
     | Some last_time ->
-      Ptime.Span.compare (Ptime.diff now last_time) (Ptime.Span.of_int_s 10) < 0
+      let diff = Ptime.diff now last_time in
+      let diff_secs = Ptime.Span.to_float_s diff in
+      let recent =
+        if Ptime.is_later last_time ~than:now then
+          false  (* Don't count future sell times *)
+        else
+        Ptime.Span.compare diff (Ptime.Span.of_int_s 10) < 0 in
+      Logs.info (fun m ->
+        m "Checking %s: now=%a, last_sell_time=%a, diff=%.2fs → recent=%b"
+          pos.symbol
+          Ptime.pp now
+          Ptime.pp last_time
+          diff_secs
+          recent
+      );
+      recent
     | None -> false
   ) positions
 
@@ -314,13 +329,13 @@ let generate_if_not_recently_sold
     Printf.printf "Skipping order for %s: recently sold.\n%!" symbol;
     []
   ) else
-    [Order.make_order
+    Order.make_order
       ~tradingsymbol:symbol
       ~quantity:qty
       ~lots: lots
       ~price: price
       ~side: side
-      ~strategy_name:"bb"]
+      ~strategy_name:"bb"
 
 let generate_upper_breach_orders
   ~(option_chain : Option_chain.t)
@@ -516,7 +531,7 @@ let on_event (state : 'local_state Strategy.state) (event : event) : 'local_stat
     in
     (* Cornerstone: we are assuming the option_chain will always have the expiry to be worked upon *)
     let expiry = current_expiry_from_option_chain ~option_chain:option_chain in 
-    Printf.printf " current expiry is %s\n" expiry;
+    (* Printf.printf " current expiry is %s\n" expiry; *)
      (* Wrap the offset calculation in Lwt.catch to handle possible failure *)
     Lwt.catch
       (fun () ->

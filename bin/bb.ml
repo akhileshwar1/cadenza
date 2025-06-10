@@ -173,11 +173,11 @@ let create_message_handler
           ) orders >>= fun () ->
           if (candle.close_price != -1.0) then
               with_db_conn current_strategy_ref (fun conn ->
-              Printf.printf "in insert candle\n%!";
+              (* Printf.printf "in insert candle\n%!"; *)
               let* res = Cadenza.Candle_store.insert conn candle in
               match res with
               | Ok _ -> 
-                Printf.printf "inserted candle\n%!";
+                (* Printf.printf "inserted candle\n%!"; *)
                 Lwt.return_unit
               | Error err ->
                 Logs.err (fun m -> m "DB update failed: %a" Caqti_error.pp err);
@@ -187,11 +187,11 @@ let create_message_handler
           >>= fun () ->
             if (option_chain != [] && candle.close_price != -1.0) then
               with_db_conn current_strategy_ref (fun conn ->
-                Printf.printf "in insert chain\n%!";
+                (* Printf.printf "in insert chain\n%!"; *)
                 let* res = Cadenza.Option_chain_store.insert conn option_chain in
                 match res with
                 | Ok _ -> 
-                  Printf.printf "inserted option chain\n%!";
+                  (* Printf.printf "inserted option chain\n%!"; *)
                   Lwt.return_unit
                 | Error err ->
                   Logs.err (fun m -> m "DB update failed: %a" Caqti_error.pp err);
@@ -260,8 +260,8 @@ let process_order_update
         Lwt_io.printf " In order update\n" >>= fun () ->
         let updated_pending_orders = List.map (Cadenza.Order.apply_order_update order) pending_orders in
         let pending_order = List.find (fun x -> x.broker_order_id = order.broker_order_id) pending_orders in
-        let json = json_of_order pending_order in
-        Printf.printf " Updated Pending Order is: %s\n%!" (Yojson.Safe.pretty_to_string json);
+        (* let json = json_of_order pending_order in *)
+        (* Printf.printf " Updated Pending Order is: %s\n%!" (Yojson.Safe.pretty_to_string json); *)
         let updated_state = { state with pending_orders = updated_pending_orders } in
         strategy_ref := Cadenza.Strategy.update_state !strategy_ref updated_state;
         let* () =

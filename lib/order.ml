@@ -108,6 +108,17 @@ let json_of_order (order : t) : Yojson.Safe.t =
     ("broker_order_id", `String  order.broker_order_id)
   ]
 
+let freeze_qty = 1800
+
+let split_quantity quantity =
+  let rec aux remaining acc =
+    if remaining <= 0 then List.rev acc
+    else
+      let this_qty = min freeze_qty remaining in
+      aux (remaining - this_qty) (this_qty :: acc)
+  in
+  aux quantity []
+
 let make_order
   ~(tradingsymbol : string)
   ~(quantity : int)
@@ -115,27 +126,33 @@ let make_order
   ~(price : float)
   ~(side : side)
   ~(strategy_name : string)
-  : t =
-  {
-    placed_at = Some (Ptime_clock.now ());
-    executed_at = None;
-    tradingsymbol;
-    exchange = "NSE";
-    quantity;
-    price;
-    trigger_price = 0.0;
-    side;
-    order_type = Market;
-    product = CNC;
-    validity = DAY;
-    status = Some Pending;
-    lot = lots;
-    strategy_name;
-    filled_quantity = 0;
-    filled_price = 0.0;
-    broker_order_id = "";
-    order_id = generate_order_id ();
-  }
+  : t list =
+  let chunks = split_quantity quantity in
+  List.map
+    (fun q ->
+      {
+        placed_at = Some (Ptime_clock.now ());
+        executed_at = None;
+        tradingsymbol;
+        exchange = "NSE";
+        quantity = q;
+        price;
+        trigger_price = 0.0;
+        side;
+        order_type = Market;
+        product = CNC;
+        validity = DAY;
+        status = Some Pending;
+        lot = lots;
+        strategy_name;
+        filled_quantity = 0;
+        filled_price = 0.0;
+        broker_order_id = "";
+        order_id = generate_order_id ();
+      }
+    )
+  chunks
+
 
 let ptime_of_string (s : string) : Ptime.t option =
   match Ptime.of_rfc3339 s with

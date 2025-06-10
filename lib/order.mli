@@ -69,7 +69,7 @@ type t = {
   price:float ->
   side:side ->
   strategy_name:string ->
-  t
+  t list
 
 
   val of_yojson : Yojson.Safe.t -> t
