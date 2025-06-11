@@ -3,6 +3,7 @@ open Cadenza.Order
 open Lwt
 open Cadenza.Connector
 open Cadenza.Bb_strategy
+open Unix
 
 (* let mock_order_queue : string Lwt_mvar.t = Lwt_mvar.create_empty () *)
 let red str = "\027[31m" ^ str ^ "\027[0m"
@@ -319,10 +320,85 @@ let create_order_update_handler
 (*   Lwt.async loop; *)
 (*   Lwt.return_unit *)
 
+let timestamped_reporter () =
+  (* Create a mutable buffer to temporarily store the formatted log message. *)
+  let buf = Buffer.create 512 in
+  (* Create a formatter that writes its output to the buffer. *)
+  let formatter = Format.formatter_of_buffer buf in
+
+  (* The main 'report' function, which is the core of our custom reporter. *)
+  let report _src level ~over k msgf =
+    (* Get the current time and format it into a [HH:MM:SS] timestamp. *)
+    let time = localtime (time ()) in
+    let timestamp = Printf.sprintf "[%02d:%02d:%02d]" time.tm_hour time.tm_min time.tm_sec in
+
+    (* 'msgf' is a higher-order function provided by the Logs library.
+       We call it with a lambda that receives the specific details of the log message:
+       ?header (optional header), ?tags (optional tags), and fmt (the actual format string
+       and arguments from the user's Logs.info/warn/etc. call). *)
+    let result_of_log_processing =
+      msgf @@ fun ?header ?tags fmt ->
+      (* Explicitly ignore the 'tags' variable to avoid unused variable warnings.
+           The '?tags' label must be present to match Logs.msgf's expected signature. *)
+      let (_ : Logs.Tag.set option) = tags in
+
+      (* First, print our custom timestamp and the standard Logs header
+           (which includes the log level like [I], [W], [E]) to our temporary buffer. *)
+      Format.fprintf formatter "%s [%a] @[" timestamp Logs_fmt.pp_header (level, header);
+
+      (* Now, use Format.kfprintf to append the actual log message content (from 'fmt')
+           to our temporary formatter. The crucial part here is the continuation function
+           passed to Format.kfprintf. This function will be called once 'fmt' is
+           fully formatted and written to the buffer. *)
+      Format.kfprintf
+        (fun _fmt -> (* '_fmt' is the formatter (our 'formatter') that kfprintf passes; we ignore it. *)
+          Format.pp_print_string formatter "@]"; (* Close the @[ block that was opened for the header. *)
+          Format.pp_print_newline formatter ();   (* Add a newline character to the buffered output. *)
+
+          over (); (* Call 'over()' to signal to the Logs library that this log message processing is complete. *)
+          k ()     (* Call the original continuation 'k()' provided by Logs. This propagates the final result
+                        of the log operation, ensuring the correct type ('a') is returned from this block. *)
+        )
+        formatter (* The formatter (writing to 'buf') to which 'fmt' will be applied. *)
+        fmt       (* The original format string from the user's Logs call (e.g., "Hello %s"). *)
+    in
+
+    (* After 'msgf' (and its internal Format.kfprintf) has completed its work
+       and called 'k()', the message is fully assembled in our buffer. *)
+    Format.pp_print_flush formatter (); (* Ensure all buffered output is flushed. *)
+    let s = Buffer.contents buf in     (* Get the complete log message as a string from the buffer. *)
+    Buffer.clear buf;                  (* Clear the buffer for the next log message. *)
+    print_string s;                    (* Finally, print the complete string to standard output. *)
+
+    result_of_log_processing (* Return the 'a' value captured from the 'msgf' continuation. *)
+  in
+  (* Return the Logs.reporter record, containing our custom 'report' function. *)
+  { Logs.report = report }
+
+let setup_logging () =
+  Fmt_tty.setup_std_outputs (); (* This configures Fmt_tty for colored terminal output. *)
+  Logs.set_reporter (timestamped_reporter ());
+  Logs.set_level (Some Logs.Info);
+  ()
+
 let () =
   let open Lwt.Syntax in
-  Logs.set_reporter (Logs_fmt.reporter ());
-  Logs.set_level (Some Logs.Info);
+  setup_logging ();
+  
+  Logs.info (fun m -> m "This is a %a message with %a." 
+                        Fmt.(styled `Cyan string) "standard info"
+                        Fmt.(styled `Green string) "Fmt_tty colors");
+
+  (* FIX: Changed to fun m -> m style to resolve parsing ambiguity with Fmt.styled *)
+  Logs.warn (fun m -> m "A warning: %a (this will be yellow by default)." 
+                        Fmt.(styled `Bold string) "Something might be amiss!");
+
+  Logs.err (fun m -> m "An error occurred: %a (this will be red by default)." 
+    Fmt.(styled `Red  string) "File not found!");
+
+  (* FIX: Changed to fun m -> m style for consistency with complex pretty-printers *)
+  Logs.info (fun m -> m "A list of numbers: %a" 
+                        Fmt.(Dump.list int) [1; 2; 3; 4; 5]);
 
   (* Initialize DB connection and strategy together *)
   let strategy_promise =
