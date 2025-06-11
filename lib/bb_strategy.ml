@@ -47,8 +47,8 @@ let initial_local_state = {
   option_chain = [];
   candle_lots_sold = 0;
   day_lots_sold = 0;
-  day_lots_limit = 140;
-  candle_lots_limit = 39;
+  day_lots_limit = 110;
+  candle_lots_limit = 28;
   last_candle_timestamp = None;
 }
 
@@ -514,9 +514,6 @@ let is_new_candle ~previous ~current =
     in
     bucket prev <> bucket current
 
-let total_lots_sold orders : int =
-  List.fold_left (fun acc (order:Order.t)  -> acc + order.lot) 0 orders
-
 (* Process the event and transform the state *)
 let on_event (state : 'local_state Strategy.state) (event : event) : 'local_state Strategy.state Lwt.t =
   match event with
@@ -554,9 +551,10 @@ let on_event (state : 'local_state Strategy.state) (event : event) : 'local_stat
         Lwt.return 0.0)  (* fallback or handle as per your logic *)
     >>= fun offset ->
     let expired_close_orders = expired_close_orders current_time state.positions option_chain in
-    Printf.printf "lots sold %d and candle lots limit %d " candle_lots_sold candle_lots_limit; 
+    Printf.printf "lots sold %d and candle lots limit %d\n%! " candle_lots_sold candle_lots_limit; 
+    Printf.printf "day lots sold %d and candle day lots limit %d\n%! " day_lots_sold day_lots_limit; 
     let transition_orders = 
-      if candle_lots_sold < candle_lots_limit && day_lots_limit < day_lots_sold then
+      if candle_lots_sold < candle_lots_limit && day_lots_sold < day_lots_limit then
         (transition_orders
           ~current_breach:current_breach
           ~last_breach:state.local_state.last_breach
@@ -574,8 +572,7 @@ let on_event (state : 'local_state Strategy.state) (event : event) : 'local_stat
                             last_breach = current_breach;
                             candle = candle;
                             option_chain = option_chain;
-                            candle_lots_sold = candle_lots_sold + total_lots_sold transition_orders;
-                            day_lots_sold = day_lots_sold + total_lots_sold transition_orders;
+                            candle_lots_sold = candle_lots_sold; (* reset to 0 happens here *)
                             last_candle_timestamp = Some current_time} in
     let new_state = {
       state with created_orders = all_orders;

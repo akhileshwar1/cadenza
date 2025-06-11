@@ -206,6 +206,15 @@ let create_message_handler
       )
   )
 
+let update_local_state_with_lots (order : Cadenza.Order.t) (local_state : Cadenza.Bb_strategy.local_state) : Cadenza.Bb_strategy.local_state = 
+  let candle_lots_sold = local_state.candle_lots_sold in
+  let day_lots_sold = local_state.day_lots_sold in
+  match order.side with
+  | Sell -> {local_state with
+    candle_lots_sold = candle_lots_sold + order.lot;
+    day_lots_sold = day_lots_sold + order.lot}
+  | Buy -> {local_state with day_lots_sold = day_lots_sold - order.lot}
+
 let process_order_update
   (json : Yojson.Safe.t)
   (strategy_ref : ('a, 'b) Cadenza.Strategy.t ref)
@@ -228,9 +237,11 @@ let process_order_update
         Printf.printf " Completed Order is: %s\n%!" (Yojson.Safe.pretty_to_string json);
         let updated_pending_orders = List.filter (fun x -> not (x.broker_order_id = order.broker_order_id)) pending_orders in
         let updated_positions = Cadenza.Position.update_or_insert_position state.positions completed_order in
+        let updated_local_state = update_local_state_with_lots order state.local_state in
         let updated_state = {state with completed_orders = completed_orders @ [completed_order];
           pending_orders = updated_pending_orders;
-          positions = updated_positions} in
+          positions = updated_positions;
+          local_state = updated_local_state} in
         strategy_ref := Cadenza.Strategy.update_state !strategy_ref updated_state;
         (* ⬇ Insert DB update here in Lwt context *)
         let* () =
