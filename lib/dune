@@ -14,5 +14,7 @@
   caqti
   caqti-lwt.unix
   caqti-driver-postgresql
-  ptime)
- (preprocess (pps lwt_ppx)))
+  ptime
+  redis
+  ppx_deriving_yojson)
+ (preprocess (pps lwt_ppx ppx_deriving_yojson)))

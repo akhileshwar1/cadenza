@@ -1,12 +1,13 @@
 (* lib/position.ml *)
+open Redis
 
 type status =
   | Open
-  | Closed
+  | Closed[@@deriving yojson]
 
 type side =
   | Buy
-  | Sell
+  | Sell[@@deriving yojson]
 
 type t = {
   opened_at : Ptime.t;
@@ -29,7 +30,7 @@ type t = {
   theta: float;
   gamma : float;
   rho : float;
-}
+}[@@deriving yojson]
 
 let open_position_from_order (order : Order.t) : t =
   let symbol = order.tradingsymbol in
