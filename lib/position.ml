@@ -24,6 +24,11 @@ type t = {
   value : float;
   status : status;
   pnl: float; (* already accumulated pnl from a previous closing *)
+  delta : float;
+  vega : float;
+  theta: float;
+  gamma : float;
+  rho : float;
 }
 
 let open_position_from_order (order : Order.t) : t =
@@ -48,6 +53,11 @@ let open_position_from_order (order : Order.t) : t =
     value = (match side with | Buy -> float_of_int qty *. price | Sell -> -.float_of_int qty *. price);
     status = Open;
     pnl = 0.0;
+    delta = 0.0;
+    vega = 0.0;
+    theta = 0.0;
+    gamma = 0.0;
+    rho = 0.0;
   }
 
 let update_position_from_buy_order (pos : t) (order : Order.t) : t =
@@ -205,12 +215,16 @@ let update_positions_with_option_chain
       match find_option_data (extract_strike pos.symbol) option_chain with
       | Some data ->
         (* Printf.printf " found position symbol from option chain\n%!"; *)
-        let prev_value = pos.value in
         let value = float_of_int pos.net_qty *. data.ltp in
-        Printf.printf "Updating position of symbol %s with option chain value from %f to %f\n%!" pos.symbol prev_value value;
+        Printf.printf "Updating position of symbol %s with option chain value from %f to %f and delta from %f to %f\n%!" pos.symbol pos.value value pos.delta data.delta;
         {
           pos with
           value;
+          delta = data.delta;
+          vega = data.vega;
+          theta = data.theta;
+          gamma = data.gamma;
+          rho = data.rho;
         }
       | None ->
         Printf.printf " NO position symbol found from option chain\n%!";
