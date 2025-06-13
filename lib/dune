@@ -16,5 +16,5 @@
   caqti-driver-postgresql
   ptime
   redis
-  ppx_deriving_yojson)
+  ppx_deriving_yojson.runtime)
  (preprocess (pps lwt_ppx ppx_deriving_yojson)))

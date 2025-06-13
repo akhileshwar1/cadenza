@@ -1,6 +1,24 @@
 (* lib/position.ml *)
 open Redis
 
+let ptime_to_yojson (t : Ptime.t) = `String (Ptime.to_rfc3339 t)
+let ptime_of_yojson = function
+  | `String s -> (match Ptime.of_rfc3339 s with
+      | Ok (ptime, _, _) -> Ok ptime
+      | Error _ -> Error "ptime_of_yojson: Invalid RFC3339 string")
+  | _ -> Error "ptime_of_yojson: Expected string"
+
+let option_to_yojson f = function
+  | None -> `Null
+  | Some x -> f x
+
+let option_of_yojson f = function
+  | `Null -> Ok None
+  | json -> f json |> Result.map (fun x -> Some x)
+
+let ptime_opt_to_yojson = option_to_yojson ptime_to_yojson
+let ptime_opt_of_yojson = option_of_yojson ptime_of_yojson
+
 type status =
   | Open
   | Closed[@@deriving yojson]
@@ -10,10 +28,18 @@ type side =
   | Sell[@@deriving yojson]
 
 type t = {
-  opened_at : Ptime.t;
-  closed_at : Ptime.t option;
-  last_sell_time: Ptime.t option;
-  last_buy_time : Ptime.t option;
+  opened_at : Ptime.t
+    [@yojson_of ptime_to_yojson]
+    [@yojson_to ptime_of_yojson];
+  closed_at : Ptime.t option
+    [@yojson_of ptime_opt_to_yojson]
+    [@yojson_to ptime_opt_of_yojson];
+  last_sell_time: Ptime.t option
+    [@yojson_of ptime_opt_to_yojson]
+    [@yojson_to ptime_opt_of_yojson];
+  last_buy_time : Ptime.t option
+    [@yojson_of ptime_opt_to_yojson]
+    [@yojson_to ptime_opt_of_yojson];
   symbol : string;
   buy_qty : int;
   sell_qty: int;
