@@ -1,5 +1,5 @@
 (* lib/position.ml *)
-open Redis
+open Lwt.Infix
 
 let ptime_to_yojson (t : Ptime.t) = `String (Ptime.to_rfc3339 t)
 let ptime_of_yojson = function
@@ -27,19 +27,19 @@ type side =
   | Buy
   | Sell[@@deriving yojson]
 
-type t = {
+type pos = {
   opened_at : Ptime.t
-    [@yojson_of ptime_to_yojson]
-    [@yojson_to ptime_of_yojson];
+    [@to_yojson ptime_to_yojson]
+    [@of_yojson ptime_of_yojson];
   closed_at : Ptime.t option
-    [@yojson_of ptime_opt_to_yojson]
-    [@yojson_to ptime_opt_of_yojson];
+    [@to_yojson ptime_opt_to_yojson]
+    [@of_yojson ptime_opt_of_yojson];
   last_sell_time: Ptime.t option
-    [@yojson_of ptime_opt_to_yojson]
-    [@yojson_to ptime_opt_of_yojson];
+    [@to_yojson ptime_opt_to_yojson]
+    [@of_yojson ptime_opt_of_yojson];
   last_buy_time : Ptime.t option
-    [@yojson_of ptime_opt_to_yojson]
-    [@yojson_to ptime_opt_of_yojson];
+    [@to_yojson ptime_opt_to_yojson]
+    [@of_yojson ptime_opt_of_yojson];
   symbol : string;
   buy_qty : int;
   sell_qty: int;
@@ -58,7 +58,7 @@ type t = {
   rho : float;
 }[@@deriving yojson]
 
-let open_position_from_order (order : Order.t) : t =
+let open_position_from_order (order : Order.t) : pos =
   let symbol = order.tradingsymbol in
   let qty = order.filled_quantity in
   let price = order.filled_price in (* since this represents the avg price that the quantity was filled at*)
@@ -87,7 +87,7 @@ let open_position_from_order (order : Order.t) : t =
     rho = 0.0;
   }
 
-let update_position_from_buy_order (pos : t) (order : Order.t) : t =
+let update_position_from_buy_order (pos : pos) (order : Order.t) : pos =
   let symbol = order.tradingsymbol in
   let qty = order.filled_quantity in
   let price = order.filled_price in (* since this represents the avg price that the quantity was filled at*)
@@ -135,7 +135,7 @@ let update_position_from_buy_order (pos : t) (order : Order.t) : t =
     closed_at = closed_at;
   }
 
-let update_position_from_sell_order (pos : t) (order : Order.t) : t =
+let update_position_from_sell_order (pos : pos) (order : Order.t) : pos =
   let symbol = order.tradingsymbol in
   let qty = order.filled_quantity in
   let price = order.filled_price in (* since this represents the avg price that the quantity was filled at*)
@@ -183,7 +183,7 @@ let update_position_from_sell_order (pos : t) (order : Order.t) : t =
   }
 
 (* this is position over all "completed" orders for a particular symbol, not meant for partial orders. *)
-let update_or_insert_position (positions : t list) (order : Order.t) : t list =
+let update_or_insert_position (positions : pos list) (order : Order.t) : pos list =
   let symbol = order.tradingsymbol in
   let side = order.side in
   let rec update_positions acc = function
@@ -233,10 +233,25 @@ let find_option_data strike option_chain =
     in
     search option_chain
 
+let publish_positions (redis_conn : Redis_lwt.Client.connection option) (positions : pos list) : unit =
+  match redis_conn with
+  | Some conn ->
+    List.iter (fun pos ->
+      let json_str = pos_to_yojson pos |> Yojson.Safe.to_string in
+      let _ : unit Lwt.t =
+        Redis_lwt.Client.publish conn "positions_channel" json_str
+        >>= fun (_) -> Lwt.return_unit
+      (* Optionally add error logging here if you want *)
+      in
+      ()
+    ) positions
+  | None ->
+    () 
+
 let update_positions_with_option_chain
   (option_chain : Option_chain.t)
-  (positions : t list)
-  : t list =
+  (positions : pos list)
+  : pos list =
   List.map
     (fun pos ->
       match find_option_data (extract_strike pos.symbol) option_chain with

@@ -6,7 +6,8 @@ type ('local_config, 'local_state) config = {
   symbol : string;
   local_config : 'local_config;
   oms_ws_uri : string;
-  db_conn : (module Caqti_lwt.CONNECTION) option
+  db_conn : (module Caqti_lwt.CONNECTION) option;
+  redis_conn : Redis_lwt.Client.connection option
 }
 
 (* Define the type for the internal state *)
@@ -15,7 +16,7 @@ type 'local_state state = {
   pending_orders : Order.t list;
   rejected_orders : Order.t list;
   created_orders : Order.t list;
-  positions : Position.t list;
+  positions : Position.pos list;
   local_state : 'local_state;
 }
 

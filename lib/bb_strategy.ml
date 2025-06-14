@@ -65,7 +65,7 @@ let write_header_to_csv (file : string) =
     "pnl";
   close_out oc
 
-let write_position_to_csv (file : string) (pos : Position.t) =
+let write_position_to_csv (file : string) (pos : Position.pos) =
   let oc = open_out_gen [Open_creat; Open_append; Open_text] 0o644 file in
   let (year, month, day), ((hour, min, sec), _) = Ptime.to_date_time pos.opened_at in
   let timestamp =
@@ -167,7 +167,7 @@ let lots_and_quantity (lot_size : int) (quantity : int) : int * int =
   let adjusted_quantity = num_lots * lot_size in
   (num_lots, adjusted_quantity)
 
-let generate_close_orders_for_position (option_chain : Option_chain.t) (pos : Position.t) : Order.t list =
+let generate_close_orders_for_position (option_chain : Option_chain.t) (pos : Position.pos) : Order.t list =
   if pos.status = Closed then []
   else
     let quantity = - pos.net_qty 
@@ -195,9 +195,9 @@ let generate_close_orders_for_position (option_chain : Option_chain.t) (pos : Po
     orders
 
 (* close orders after 15 minutes/on the 3rd candle *)
-let expired_close_orders (current_time : Ptime.t) (positions : Position.t list) (option_chain: Option_chain.t) : Order.t list =
+let expired_close_orders (current_time : Ptime.t) (positions : Position.pos list) (option_chain: Option_chain.t) : Order.t list =
   positions
-  |> List.filter (fun (pos : Position.t) ->
+  |> List.filter (fun (pos : Position.pos) ->
     (pos.status = Open &&
       match pos.last_sell_time with
       | Some sell_time ->
@@ -208,9 +208,9 @@ let expired_close_orders (current_time : Ptime.t) (positions : Position.t list) 
   |> List.concat_map (generate_close_orders_for_position option_chain)
 
 (* used in cases where you want to make sure you are not carrying a position overnight *)
-let close_all_open_orders (positions : Position.t list) (option_chain: Option_chain.t) : Order.t list =
+let close_all_open_orders (positions : Position.pos list) (option_chain: Option_chain.t) : Order.t list =
   positions
-  |> List.filter (fun (pos : Position.t) -> pos.status = Open) (* (current_time -. pos.opened_at_epoch) >= 600.0 *)
+  |> List.filter (fun (pos : Position.pos) -> pos.status = Open) (* (current_time -. pos.opened_at_epoch) >= 600.0 *)
   |> List.concat_map (generate_close_orders_for_position option_chain)
 
 let find_nearest_strike (target : float) (option_chain : Option_chain.t) : float =
@@ -292,11 +292,11 @@ let convert_date_to_symbol (date_str : string) : string =
 
 (* Check if the symbol has a sell within the last 10 seconds *)
 let has_recent_sell
-  ~(positions : Position.t list)
+  ~(positions : Position.pos list)
   ~(symbol : string)
   ~(now : Ptime.t)
   : bool =
-  List.exists (fun (pos : Position.t) ->
+  List.exists (fun (pos : Position.pos) ->
     pos.symbol = symbol &&
     match pos.last_sell_time with
     | Some last_time ->
@@ -326,7 +326,7 @@ let generate_if_not_recently_sold
   ~(lots : int)
   ~(price : float)
   ~(side : Order.side)
-  ~(positions : Position.t list)
+  ~(positions : Position.pos list)
   ~(now : Ptime.t)
   : Order.t list =
   if has_recent_sell ~positions ~symbol ~now then (
@@ -345,7 +345,7 @@ let generate_upper_breach_orders
   ~(option_chain : Option_chain.t)
   ~(candle : candle)
   ~(offset : float)
-  ~(positions : Position.t list)
+  ~(positions : Position.pos list)
   : Order.t list =
   let expiry =
     match option_chain with
@@ -398,7 +398,7 @@ let generate_lower_breach_orders
   ~(option_chain : Option_chain.t)
   ~(candle : candle)
   ~(offset : float)
-  ~(positions : Position.t list)
+  ~(positions : Position.pos list)
   : Order.t list =
   let expiry =
     match option_chain with
@@ -453,7 +453,7 @@ let transition_orders
   ~(candle : candle)
   ~(option_chain : Option_chain.t)
   ~(offset : float)
-  ~(positions : Position.t list)
+  ~(positions : Position.pos list)
   : Order.t list=
   if is_outside_trading_window candle.timestamp then
     []
