@@ -103,17 +103,71 @@
 (*       ) *)
 (*   ) *)
 
-let () =
-  let ( let* ) = Lwt_result.bind in
-  let main =
-    let* (module Conn : Caqti_lwt.CONNECTION) = Cadenza.Db_init.connect () in
-    let* () = Cadenza.Db_init.setup (module Conn) in
-    Lwt_result.return ()
+
+(* let init_redis () = *)
+(*   let host= *)
+(*     Cadenza.Connector.get_env_or_default "REDIS_URI" *)
+(*       "steady-rabbit-13588.upstash.io" *)
+(*   in *)
+(*   let port = 6379 in *)
+(*   (* let username = Uri.user uri |> Option.value ~default:"default" in *) *)
+(*   let password = "ATUUAAIjcDFjZTExYzc2MzQ2MWU0OWJiYTA0Y2JlYzkxMDMyOTM3ZHAxMA" in *)
+(**)
+(*   let open Lwt.Syntax in *)
+(*   Lwt.catch *)
+(*     (fun () -> *)
+(*       let* conn = Redis_lwt.Client.connect { host; port } in *)
+(*       (* Authenticate explicitly *) *)
+(*       let* _ = Redis_lwt.Client.issue conn [ "AUTH"; "default"; password ] in *)
+(*       Printf.printf "Redis connected and authenticated!\n%!"; *)
+(*       Lwt.return_some conn) *)
+(*     (fun exn -> *)
+(*       Logs.err (fun m -> m "Redis connection failed: %s" (Printexc.to_string exn)); *)
+(*       Lwt.return_none) *)
+(**)
+open Cohttp_lwt_unix
+
+let send_position () =
+  let open Lwt.Syntax in
+  let uri = Uri.of_string "https://steady-rabbit-13588.upstash.io/publish/positions_channel" in
+  let headers =
+    Cohttp.Header.of_list [
+      ("Authorization", "Bearer ATUUAAIjcDFjZTExYzc2MzQ2MWU0OWJiYTA0Y2JlYzkxMDMyOTM3ZHAxMA");
+      ("Content-Type", "application/json")
+      ]
   in
-  match Lwt_main.run main with
-  | Ok () -> print_endline "Setup complete."
-  | Error err -> Format.eprintf "Error: %a\n" Caqti_error.pp err
-  (* Build config *)
+  let body = `String "{\"symbol\":\"NIFTY\",\"delta\":0.5}" in
+  let* _, body = Client.post ~headers ~body uri in
+  let* body_str = Cohttp_lwt.Body.to_string body in
+  Printf.printf "Upstash response: %s\n%!" body_str;
+  Lwt.return ()
+
+(* let setup_logging () = *)
+(*   Fmt_tty.setup_std_outputs (); (* This configures Fmt_tty for colored terminal output. *) *)
+(*   Logs.set_reporter (Logs_fmt.reporter ()); *)
+(*   Logs.set_level (Some Logs.Error); *)
+(*   () *)
+
+let () = Lwt_main.run (send_position ())
+(* let () = *)
+(*   let open Lwt.Syntax in *)
+(*   setup_logging (); *)
+(*   let promise =  *)
+(*   let* conn = init_redis () in *)
+(*   let* _ = Redis_lwt.Client.publish (Option.get conn) "positions_channel" "{\"symbol\":\"NIFTY\",\"delta\":0.5}" in *)
+(*   Lwt.return () in *)
+(*   Lwt_main.run promise *)
+(**)
+(* (* let ( let* ) = Lwt_result.bind in *) *)
+(*   let main = *)
+(*     let* (module Conn : Caqti_lwt.CONNECTION) = Cadenza.Db_init.connect () in *)
+(*     let* () = Cadenza.Db_init.setup (module Conn) in *)
+(*     Lwt_result.return () *)
+(*   in *)
+(*   match Lwt_main.run main with *)
+(*   | Ok () -> print_endline "Setup complete." *)
+(*   | Error err -> Format.eprintf "Error: %a\n" Caqti_error.pp err *)
+(*   (* Build config *) *)
   (* let config = { *)
   (*   Cadenza.Strategy.data_layer_uri = "ws://127.0.0.1:8765/"; *)
   (*   oms_layer_uri = "http://localhost:9000/order/place"; *)

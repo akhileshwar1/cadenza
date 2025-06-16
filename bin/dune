@@ -1,6 +1,6 @@
 (executable
  (public_name cadenza)
- (name bb)
+ (name main)
  (libraries
   cadenza
   lwt

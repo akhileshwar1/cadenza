@@ -239,6 +239,7 @@ let publish_positions (redis_conn : Redis_lwt.Client.connection option) (positio
   match redis_conn with
   | Some conn ->
     List.iter (fun pos ->
+      Printf.printf "Firing position to redis: %s\n%!" pos.symbol;
       let json_str = pos_to_yojson pos |> Yojson.Safe.to_string in
       let _ : unit Lwt.t =
         Redis_lwt.Client.publish conn "positions_channel" json_str
