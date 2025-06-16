@@ -1,5 +1,6 @@
 (* lib/position.ml *)
-open Lwt.Infix
+open Lwt
+open Cohttp_lwt_unix
 
 let ptime_to_yojson (t : Ptime.t) = `String (Ptime.to_rfc3339 t)
 let ptime_of_yojson = function
@@ -235,21 +236,33 @@ let find_option_data strike option_chain =
     in
     search option_chain
 
-let publish_positions (redis_conn : Redis_lwt.Client.connection option) (positions : pos list) : unit =
-  match redis_conn with
-  | Some conn ->
-    List.iter (fun pos ->
-      Printf.printf "Firing position to redis: %s\n%!" pos.symbol;
-      let json_str = pos_to_yojson pos |> Yojson.Safe.to_string in
+let send_position pos_str =
+  let open Lwt.Syntax in
+  let uri = Uri.of_string (Connector.get_env_or_default "REDIS_POSITION_URI" "https://steady-rabbit-13588.upstash.io/publish/positions_channel") in
+  let pwd = Connector.get_env_or_default "REDIS_PWD" "abc" in
+  let headers =
+    Cohttp.Header.of_list [
+      ("Authorization", "Bearer " ^ pwd);
+      ("Content-Type", "application/json")
+          ]
+  in
+  let body = Cohttp_lwt.Body.of_string pos_str in
+  let* _, body = Client.post ~headers ~body uri in
+  let* body_str = Cohttp_lwt.Body.to_string body in
+  Printf.printf "Upstash response: %s\n%!" body_str;
+  Lwt.return ()
+
+let publish_positions (positions : pos list) : unit =
+  List.iter (fun pos ->
+    Printf.printf "Firing position to redis: %s\n%!" pos.symbol;
+      let pos_str = pos_to_yojson pos |> Yojson.Safe.to_string in
       let _ : unit Lwt.t =
-        Redis_lwt.Client.publish conn "positions_channel" json_str
+        send_position pos_str
         >>= fun (_) -> Lwt.return_unit
       (* Optionally add error logging here if you want *)
       in
       ()
-    ) positions
-  | None ->
-    () 
+      ) positions
 
 let update_positions_with_option_chain
   (option_chain : Option_chain.t)

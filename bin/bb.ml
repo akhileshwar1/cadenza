@@ -122,7 +122,6 @@ let process_json_message
     close_price = -1.0; upper_band = 0.0; lower_band = 0.0; sma = -0.0} in
   try
     let candle = Cadenza.Bb_strategy.json_to_candle json in
-    let redis_conn = (!current_strategy_ref).config.redis_conn in
 
     let event = Cadenza.Bb_strategy.Market_data_event candle in (* Assuming Market_data_event is in Cadenza.Strategy *)
 
@@ -134,7 +133,7 @@ let process_json_message
     current_strategy_ref := Cadenza.Strategy.update_state !current_strategy_ref new_state_after_extraction;
     let option_chain = !current_strategy_ref.state.local_state.option_chain in
     let positions = !current_strategy_ref.state.positions in
-    Cadenza.Position.publish_positions redis_conn positions; (* fire and forget *)
+    Cadenza.Position.publish_positions positions; (* fire and forget *)
     Lwt.return (orders, candle, option_chain)
   with
     (* Add specific error handling for your candle processing if needed *)
@@ -402,21 +401,6 @@ let init_db () =
       Printf.printf "Db connected!\n%!";
       Lwt.return_some (module Conn : Caqti_lwt.CONNECTION)
 
-let init_redis () =
-  let uri_string = Cadenza.Connector.get_env_or_default "REDIS_URI" "redis://127.0.0.1:6379" in
-  let uri = Uri.of_string uri_string in
-  let host = Uri.host_with_default ~default:"127.0.0.1" uri in
-  let port = Uri.port uri |> Option.value ~default:6379 in
-  let open Lwt.Syntax in
-  Lwt.catch
-    (fun () ->
-      let* conn = Redis_lwt.Client.connect { host; port } in
-      Printf.printf "Redis connected!\n%!";
-      Lwt.return_some conn)
-    (fun exn ->
-      Logs.err (fun m -> m "Redis connection failed: %s" (Printexc.to_string exn));
-      Lwt.fail_with "Redis connection failed")
-
 let () =
   let open Lwt.Syntax in
   setup_logging ();
@@ -439,7 +423,6 @@ let () =
   (* Initialize DB connection and strategy together *)
   let strategy_promise =
     let* db_conn = init_db () in
-    let* redis_conn = init_redis () in
     let config = {
       Cadenza.Strategy.data_layer_uri = Cadenza.Connector.get_env_or_default "DATA_LAYER_URI" "ws://127.0.0.1:8000/candles/stream";
       oms_layer_uri = Cadenza.Connector.get_env_or_default "OMS_LAYER_URI" "http://localhost:9000/order/place";
@@ -447,7 +430,6 @@ let () =
       symbol = "NIFTY";
       local_config = ();
       db_conn = db_conn;  (* Inject the DB connection *)
-      redis_conn = redis_conn;
     } in
     let strategy = Cadenza.Bb_strategy.create config in
     Lwt.return strategy
