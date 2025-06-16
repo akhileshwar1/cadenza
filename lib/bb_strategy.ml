@@ -47,8 +47,8 @@ let initial_local_state = {
   option_chain = [];
   candle_lots_sold = 0;
   day_lots_sold = 0;
-  day_lots_limit = 110;
-  candle_lots_limit = 28;
+  day_lots_limit = 115;
+  candle_lots_limit = 14;
   last_candle_timestamp = None;
 }
 
