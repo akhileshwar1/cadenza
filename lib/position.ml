@@ -52,6 +52,7 @@ type pos = {
   status : status;
   pnl: float; (* already accumulated pnl from a previous closing *)
   delta : float;
+  total_delta : float;
   vega : float;
   theta: float;
   gamma : float;
@@ -81,6 +82,7 @@ let open_position_from_order (order : Order.t) : pos =
     status = Open;
     pnl = 0.0;
     delta = 0.0;
+    total_delta = 0.0;
     vega = 0.0;
     theta = 0.0;
     gamma = 0.0;
@@ -262,7 +264,8 @@ let update_positions_with_option_chain
         {
           pos with
           value;
-          delta = data.delta;
+          delta = data.delta *. 100.0;
+          total_delta = data.delta *. 100.0 *. (float_of_int pos.net_qty);
           vega = data.vega;
           theta = data.theta;
           gamma = data.gamma;
