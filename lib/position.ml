@@ -279,7 +279,7 @@ let update_positions_with_option_chain
           pos with
           value;
           delta = data.delta *. 100.0;
-          total_delta = data.delta *. 100.0 *. (float_of_int pos.net_qty);
+          total_delta = data.delta *. 100.0 *. (float_of_int (abs pos.net_qty));
           vega = data.vega;
           theta = data.theta;
           gamma = data.gamma;
