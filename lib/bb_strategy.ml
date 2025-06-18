@@ -2,6 +2,7 @@
 (* Let this module be purely functional always *)
 (* open Strategy *)
 open Lwt.Infix
+open Option_chain
 
 type breach_status = 
   | Upper
@@ -213,15 +214,58 @@ let close_all_open_orders (positions : Position.pos list) (option_chain: Option_
   |> List.filter (fun (pos : Position.pos) -> pos.status = Open) (* (current_time -. pos.opened_at_epoch) >= 600.0 *)
   |> List.concat_map (generate_close_orders_for_position option_chain)
 
-let find_nearest_strike (target : float) (option_chain : Option_chain.t) : float =
-  let all_strikes =
-    option_chain
-    |> List.hd |> snd (* pick any expiry, doesn't matter *)
-    |> List.map fst
-  in
-  List.fold_left (fun acc strike ->
-    if abs_float (strike -. target) < abs_float (acc -. target) then strike else acc
-  ) (List.hd all_strikes) all_strikes
+let find_nearest_strike
+    (target : float)
+    (otype : string)
+    (option_chain : Option_chain.t)
+    : float * Option_chain.option_data =
+      let _, strike_map = List.hd option_chain in
+      match strike_map with
+  | [] -> failwith "No strikes in option chain"
+  | (first_strike, first_data_map) :: rest ->
+      let first_data = List.assoc otype first_data_map in
+      List.fold_left
+       (fun (best_strike, best_data, best_diff) (strike, data_map) ->
+         match List.assoc_opt otype data_map with
+         | Some option_data ->
+             let diff = abs_float (strike -. target) in
+             if diff < best_diff then (strike, option_data, diff)
+             else (best_strike, best_data, best_diff)
+         | None -> (best_strike, best_data, best_diff))
+       (first_strike, first_data, abs_float (first_strike -. target))
+       rest
+     |> fun (strike, data, _) -> (strike, data)
+
+let find_nearest_delta_strike
+    (target_delta : float)
+    (otype : string)
+    (option_chain : Option_chain.t)
+    : float * Option_chain.option_data =
+      let _, strike_map = List.hd option_chain in (* pick any expiry, doesn't matter *)
+      let dummy_data : Option_chain.option_data = {
+        timestamp = Ptime.epoch;
+        symbol = "";
+        ltp = 0.0;
+        delta = 0.0;
+        strike = "";
+        iv = 0.0;
+        vega = 0.0;
+        theta = 0.0;
+        gamma = 0.0;
+        rho = 0.0;
+      } in
+      List.fold_left 
+       (fun (best_strike, best_data, best_diff) (strike, data_map) ->
+         match List.assoc_opt otype data_map with
+        | Some option_data ->
+            let d = abs_float option_data.delta in
+            let diff = abs_float (d -. target_delta) in
+            if diff < best_diff then (strike, option_data, diff)
+            else (best_strike, best_data, best_diff)
+        | None -> (best_strike, best_data, best_diff))
+       (0.0, dummy_data, max_float)
+       strike_map
+     |> fun (strike, data, _) -> (strike, data)
 
 let get_option_data (option_chain : Option_chain.t) (expiry : string) (strike : float) (otype : string) : Option_chain.option_data =
   match List.assoc_opt expiry option_chain with
@@ -341,6 +385,7 @@ let generate_if_not_recently_sold
       ~side: side
       ~strategy_name:"bb"
 
+(* NOTE: what happens if the option chain is empty? *)
 let generate_upper_breach_orders
   ~(option_chain : Option_chain.t)
   ~(candle : candle)
@@ -356,21 +401,22 @@ let generate_upper_breach_orders
   let now = candle.timestamp in
   Printf.printf "current price is %f and offset %f\n%!" current_price offset;
 
-  let call_strike = find_nearest_strike (current_price +. offset) option_chain in
-  let call_data = get_option_data option_chain expiry call_strike "CE" in
+  let _, call_data = find_nearest_strike (current_price +. offset) "CE" option_chain in
   let call_qty = 150 in
   let call_lots, call_adj_qty = lots_and_quantity 75 call_qty in
   let call_delta = abs_float call_data.delta in
   let call_delta_exposure = call_delta *. float_of_int call_adj_qty in
 
-  let put_strike = find_nearest_strike (current_price -. offset) option_chain in
-  let put_data = get_option_data option_chain expiry put_strike "PE" in
+  let _, put_data = find_nearest_delta_strike call_delta "PE" option_chain in
   let put_delta = abs_float put_data.delta in
   Printf.printf " call delta exposure and put delta are %f %f \n%!" call_delta_exposure put_delta;
   let put_qty = int_of_float (ceil (0.75 *. call_delta_exposure /. put_delta)) in
   let put_lots, put_adj_qty = lots_and_quantity 75 put_qty in
   let call_trading_symbol = "NIFTY" ^ convert_date_to_symbol expiry ^ call_data.strike in
   let put_trading_symbol = "NIFTY" ^ convert_date_to_symbol expiry ^ put_data.strike in
+  (* NOTE:You are assuming that these pairs will always be generated on the same second!
+          Any difference and the next pair of trades may contain no Hedge! 
+          You can condition the timing on the call symbol only, the put goes if the call goes *)
   let call_orders =
     generate_if_not_recently_sold
       ~symbol:call_trading_symbol
@@ -408,15 +454,13 @@ let generate_lower_breach_orders
   let current_price = candle.close_price in
   let now = candle.timestamp in
 
-  let put_strike = find_nearest_strike (current_price -. offset) option_chain in
-  let put_data = get_option_data option_chain expiry put_strike "PE" in
+  let _, put_data = find_nearest_strike (current_price -. offset) "PE" option_chain in
   let put_qty = 150 in
   let put_lots, put_adj_qty = lots_and_quantity 75 put_qty in
   let put_delta = abs_float put_data.delta in
   let put_delta_exposure = put_delta *. float_of_int put_adj_qty in
 
-  let call_strike = find_nearest_strike (current_price +. offset) option_chain in
-  let call_data = get_option_data option_chain expiry call_strike "CE" in
+  let _, call_data = find_nearest_delta_strike put_delta "CE" option_chain in
   let call_delta = abs_float call_data.delta in
   Printf.printf " put delta exposure and call delta are %f %f \n%!" put_delta_exposure call_delta;
   let call_qty = int_of_float (ceil (0.75 *. put_delta_exposure /. call_delta)) in
