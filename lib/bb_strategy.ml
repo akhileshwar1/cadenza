@@ -48,8 +48,8 @@ let initial_local_state = {
   option_chain = [];
   candle_lots_sold = 0;
   day_lots_sold = 0;
-  day_lots_limit = 115;
-  candle_lots_limit = 14;
+  day_lots_limit = 110;
+  candle_lots_limit = 30;
   last_candle_timestamp = None;
 }
 
@@ -350,7 +350,7 @@ let has_recent_sell
         if Ptime.is_later last_time ~than:now then
           false  (* Don't count future sell times *)
         else
-        Ptime.Span.compare diff (Ptime.Span.of_int_s 10) < 0 in
+        Ptime.Span.compare diff (Ptime.Span.of_int_s 12) < 0 in
       Logs.info (fun m ->
         m "Checking %s: now=%a, last_sell_time=%a, diff=%.2fs → recent=%b"
           pos.symbol
@@ -402,7 +402,7 @@ let generate_upper_breach_orders
   Printf.printf "current price is %f and offset %f\n%!" current_price offset;
 
   let _, call_data = find_nearest_strike (current_price +. offset) "CE" option_chain in
-  let call_qty = 150 in
+  let call_qty = 300 in
   let call_lots, call_adj_qty = lots_and_quantity 75 call_qty in
   let call_delta = abs_float call_data.delta in
   let call_delta_exposure = call_delta *. float_of_int call_adj_qty in
@@ -457,7 +457,7 @@ let generate_lower_breach_orders
   let now = candle.timestamp in
 
   let _, put_data = find_nearest_strike (current_price -. offset) "PE" option_chain in
-  let put_qty = 150 in
+  let put_qty = 300 in
   let put_lots, put_adj_qty = lots_and_quantity 75 put_qty in
   let put_delta = abs_float put_data.delta in
   let put_delta_exposure = put_delta *. float_of_int put_adj_qty in
