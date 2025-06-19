@@ -435,10 +435,12 @@ let generate_upper_breach_orders
       ~price:put_data.ltp
       ~side:Order.Sell
       ~positions
-      ~now
-  in
-  call_orders @ put_orders
- 
+      ~now in
+  if (List.length call_orders > 0 && List.length put_orders > 0) then (* only when both are available *)
+    call_orders @ put_orders
+  else
+    []
+
   
 let generate_lower_breach_orders
   ~(option_chain : Option_chain.t)
@@ -488,7 +490,10 @@ let generate_lower_breach_orders
       ~positions
       ~now
   in
-  call_orders @ put_orders
+  if (List.length call_orders > 0 && List.length put_orders > 0) then
+    call_orders @ put_orders
+  else
+    []
 
 
 let transition_orders
