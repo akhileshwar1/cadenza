@@ -1,12 +1,19 @@
 open Lwt.Infix
 open Cohttp_lwt_unix
 open Yojson.Safe.Util
+open Connector
 
 type option_data = {
+  timestamp : Ptime.t;
   symbol : string;
   ltp : float;
   delta : float;
   strike : string;
+  iv : float;
+  vega : float;
+  theta : float;
+  gamma : float;
+  rho : float;
 }
 
 type t = (string * (float * (string * option_data) list) list) list
@@ -26,20 +33,33 @@ let safe_to_float key json =
   | `Null -> (* log (Printf.sprintf "Key '%s' is null" key); *) nan
   | _ -> (* log (Printf.sprintf "Key '%s' is not a float" key); *) nan
 
-let parse_option_data json : option_data =
+(* pass current_time from the caller to get the same timestamp throughout the chain*)
+let parse_option_data json current_time : option_data =
   let symbol = safe_to_string "symbol" json in
   let ltp = safe_to_float "ltp" json in
   let delta = safe_to_float "delta" json in
+  let iv = safe_to_float "IV" json in
+  let vega = safe_to_float "vega" json in
+  let theta = safe_to_float "theta" json in
+  let gamma = safe_to_float "gamma" json in
+  let rho = safe_to_float "rho" json in
   let strike = safe_to_string "strike" json in
   (* log (Printf.sprintf "Parsed option: %s ltp=%f delta=%f %s" symbol ltp delta strike); *)
   {
+    timestamp = current_time;
     symbol;
     ltp;
     delta;
     strike;
+    iv;
+    vega;
+    theta;
+    gamma;
+    rho;
   }
 
 let parse (json : Yojson.Safe.t) : t =
+  let current_time = Ptime_clock.now() in
   (* log "Starting parse"; *)
   json
   |> to_assoc
@@ -61,7 +81,7 @@ let parse (json : Yojson.Safe.t) : t =
           |> to_assoc
           |> List.map (fun (sym, data) ->
             (* log (Printf.sprintf "    Contract: %s" sym); *)
-            (sym, parse_option_data data))
+            (sym, parse_option_data data current_time))
         in
         (strike, contracts)
       )
@@ -69,11 +89,45 @@ let parse (json : Yojson.Safe.t) : t =
     (expiry, strikes)
   )
 
+(* logic to roll to next expiry on the expiry day/thursdays *)
+let find_next_expiry expiry_data today =
+  match expiry_data with
+  | [] -> None
+  | hd :: tl ->
+    let date = safe_to_string "date" hd in
+    if date = today then
+      (match tl with
+        | next :: _ -> Some (safe_to_string "expiry" next)
+        | [] -> None)
+    else
+      Some (safe_to_string "expiry" hd)
+
+let uri_with_expiry expiry =
+  let base_uri = (get_env_or_default "OPT_CHAIN_URI" "http://localhost:8003/option-chain?symbol=NSE:NIFTY50-INDEX") in
+  let full_uri = Printf.sprintf "%s&expiry=%s" base_uri expiry in
+  Uri.of_string full_uri
 
 let get () : t Lwt.t =
-  let uri = Uri.of_string "http://localhost:8000/option-chain?symbol=NSE:NIFTY50-INDEX" in
-  Client.get uri >>= fun (_, body) ->
-  body |> Cohttp_lwt.Body.to_string >|= fun body_str ->
-  (* Printf.printf "body is %s\n%!" body_str; *)
+  let base_uri = Uri.of_string (get_env_or_default "OPT_CHAIN_URI" "http://localhost:8003/option-chain?symbol=NSE:NIFTY50-INDEX") in
+  Client.get base_uri >>= fun (_, body) ->
+  Cohttp_lwt.Body.to_string body >>= fun body_str ->
   let json = Yojson.Safe.from_string body_str in
-  parse json
+  let expiry_data = json |> member "expiryData" |> to_list in
+  let chain = json |> member "chain" in
+  let today =
+    let (y, m, d), _ = Ptime.to_date_time (Ptime_clock.now ()) in
+    Printf.sprintf "%02d-%02d-%04d" d m y
+  in
+  let next_expiry_opt = find_next_expiry expiry_data today in
+  match next_expiry_opt with
+  | Some expiry_epoch when expiry_epoch <> "" ->
+    (* Make second request with the next expiry in epoch*)
+    let uri = uri_with_expiry expiry_epoch in
+    Client.get uri >>= fun (_, body2) ->
+    Cohttp_lwt.Body.to_string body2 >|= fun body2_str ->
+    let json2 = Yojson.Safe.from_string body2_str in
+    let chain2 = json2 |> member "chain" in
+    parse chain2 
+  | _ ->
+    (* Use original *)
+    Lwt.return (parse chain)

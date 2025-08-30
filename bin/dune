@@ -16,5 +16,6 @@
   conduit-lwt
   sexplib
   tls-lwt
-  tls)
- (preprocess (pps lwt_ppx)))
+  tls
+  fmt.tty)
+ (preprocess (pps lwt_ppx ppx_jane)))

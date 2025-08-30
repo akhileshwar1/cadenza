@@ -59,6 +59,8 @@ let on_event (state : 'local_state Strategy.state) (event : event) : 'local_stat
 
     (* Create the new order based on the candle data *)
     let new_order = {
+      placed_at = Some (Ptime_clock.now ());
+      executed_at = Some (Ptime_clock.now ());
       Order.tradingsymbol = "TCS";  (* Hardcoded for now *)
       exchange = "NSE";
       quantity = 50;
@@ -70,7 +72,11 @@ let on_event (state : 'local_state Strategy.state) (event : event) : 'local_stat
       product = Order.MIS;
       validity = Order.DAY;
       status = Some Order.Pending;
-      strategy_name = "Glitters_alternate"
+      strategy_name = "Glitters_alternate";
+      filled_quantity = 0;
+      filled_price = 0.0;
+      broker_order_id = "";
+      order_id = ""
     } in
 
     (* Update the state with new order *)
