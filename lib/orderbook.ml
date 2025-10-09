@@ -1,11 +1,9 @@
 (* orderbook.ml *)
 
-open Yojson.Safe
-
 type price = int64
 type size_ = int64
 
-let price_scale = Int64.of_int 100000000
+(* let price_scale = Int64.of_int 100000000 *)
 
 module PriceDesc = struct
   type t = price
@@ -67,13 +65,13 @@ let set_from_snapshot (ob : t) (snap : Yojson.Safe.t) =
 
 let apply_event (ob : t) (ev : Yojson.Safe.t) : bool =
   let open Yojson.Safe.Util in
-  let u = ev |> member "u" |> to_int |> Int64.of_int in
-  let U = ev |> member "U" |> to_int |> Int64.of_int in
-  if Int64.compare u ob.last_update_id < 0 then
+  let last_u = ev |> member "u" |> to_int |> Int64.of_int in
+  let first_U = ev |> member "U" |> to_int |> Int64.of_int in
+  if Int64.compare last_u ob.last_update_id < 0 then
     true
   else
     let expected_next = Int64.add ob.last_update_id 1L in
-    if Int64.compare U expected_next > 0 then
+    if Int64.compare first_U expected_next > 0 then
       false
   else (
     (* apply bids *)
@@ -102,7 +100,7 @@ let apply_event (ob : t) (ev : Yojson.Safe.t) : bool =
            | _ -> ()
            ) asks
           with _ -> ());
-      ob.last_update_id <- u;
+      ob.last_update_id <- last_u;
       true
       )
 

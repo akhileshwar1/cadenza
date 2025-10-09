@@ -1,6 +1,6 @@
 (executable
  (public_name cadenza)
- (name bb)
+ (name mm)
  (libraries
   cadenza
   lwt
@@ -22,5 +22,6 @@
   (language c)
   (names ring_consumer_stub))             ; will compile ring_consumer_stub.c
  ;; If ring_mmap is a system/shared lib you built, link it:
- (link_flags -L/mnt/ntfs/Code/aether/build -lring_mmap)  ; adjust path or install libring_mmap system-wide
+ (link_flags -cclib -L/mnt/ntfs/Code/aether/build -cclib -lring_mmap)  ; adjust path or install libring_mmap system-wide
  (preprocess (pps lwt_ppx ppx_jane)))
+;;  export LD_LIBRARY_PATH=/mnt/ntfs/Code/aether/build:$LD_LIBRARY_PATH before dune exec bin/mm.exe
