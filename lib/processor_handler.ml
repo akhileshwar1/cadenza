@@ -96,12 +96,8 @@ let make_handler
                prerr_endline ("[handler] error applying snapshot: " ^ Printexc.to_string ex)
            end;
            Orderbook.print_top ~n:5 orderbook;
-
            (* Try to generate proposal & reconcile *)
-           (match Proposal_generator.generate ~cfg:pg_cfg ~orderbook with
-            | None -> Lwt.return_unit
-            | Some _ ->
-                run_reconcile ~pg_cfg ~rec_cfg ~orderbook ~tracker ~executor_module:(module Ex))
+           run_reconcile ~pg_cfg ~rec_cfg ~orderbook ~tracker ~executor_module:(module Ex)
            >>= fun () ->
            Lwt.return state
 
@@ -116,11 +112,7 @@ let make_handler
                prerr_endline ("[handler] error applying depth update: " ^ Printexc.to_string ex)
            end;
            Orderbook.print_top ~n:5 orderbook;
-           (* On every applied depth update, attempt reconciliation (could be throttled later) *)
-           (match Proposal_generator.generate ~cfg:pg_cfg ~orderbook with
-            | None -> Lwt.return_unit
-            | Some _ ->
-                run_reconcile ~pg_cfg ~rec_cfg ~orderbook ~tracker ~executor_module:(module Ex))
+           run_reconcile ~pg_cfg ~rec_cfg ~orderbook ~tracker ~executor_module:(module Ex)
            >>= fun () -> Lwt.return state
 
          | Event_types.OMS_UPDATE ->
