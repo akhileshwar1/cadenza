@@ -79,7 +79,7 @@ module Q = struct
     let open Caqti_type in
     t2 string (
       t2 string (
-        t2 int (
+        t2 float (
           t2 float (
             t2 float (
               t2 string (
@@ -89,7 +89,7 @@ module Q = struct
                       t2 string (
                         t2 string (
                           t2 int (
-                            t2 int (
+                            t2 float (
                               t2 float (
                                 t2 string string
                               ))))))))))))))

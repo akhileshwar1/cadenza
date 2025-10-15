@@ -42,11 +42,11 @@ type pos = {
     [@to_yojson ptime_opt_to_yojson]
     [@of_yojson ptime_opt_of_yojson];
   symbol : string;
-  buy_qty : int;
-  sell_qty: int;
+  buy_qty : float;
+  sell_qty: float;
   net_buy_price : float;
   net_sell_price : float;
-  net_qty : int;
+  net_qty : float;
   net_price : float;
   side : side;
   value : float;
@@ -65,21 +65,21 @@ let open_position_from_order (order : Order.t) : pos =
   let qty = order.filled_quantity in
   let price = order.filled_price in (* since this represents the avg price that the quantity was filled at*)
   let side = order.side in
-  Printf.printf "Adding new position for symbol %s with price %f and qty %d \n%!" symbol price qty;
+  Printf.printf "Adding new position for symbol %s with price %f and qty %f \n%!" symbol price qty;
   {
     opened_at = Ptime_clock.now ();
     closed_at = None;
     last_sell_time = (match side with | Buy -> None | Sell -> order.executed_at);
     last_buy_time = (match side with | Buy -> order.executed_at | Sell -> None);
     symbol;
-    buy_qty = (match side with | Buy -> qty | Sell -> 0);
-    sell_qty = (match side with | Buy -> 0 | Sell -> -qty);
+    buy_qty = (match side with | Buy -> qty | Sell -> 0.0);
+    sell_qty = (match side with | Buy -> 0.0 | Sell -> -.qty);
     net_buy_price = (match side with | Buy -> price | Sell -> 0.0);
     net_sell_price = (match side with | Buy -> 0.0 | Sell -> price);
     side = (match side with | Buy -> Buy | Sell -> Sell);
-    net_qty = (match side with | Buy -> qty | Sell -> -qty);
+    net_qty = (match side with | Buy -> qty | Sell -> -.qty);
     net_price = price;
-    value = (match side with | Buy -> float_of_int qty *. price | Sell -> -.float_of_int qty *. price);
+    value = (match side with | Buy -> qty *. price | Sell -> -.qty *. price);
     status = Open;
     pnl = 0.0;
     delta = 0.0;
@@ -95,23 +95,23 @@ let update_position_from_buy_order (pos : pos) (order : Order.t) : pos =
   let qty = order.filled_quantity in
   let price = order.filled_price in (* since this represents the avg price that the quantity was filled at*)
   let now = Ptime_clock.now () in
-  let total_qty = pos.net_qty + qty in
-  let total_buy_cost = (float_of_int pos.buy_qty *. pos.net_buy_price) +. (float_of_int qty *. price) in
-  let total_sell_cost = (float_of_int pos.sell_qty *. pos.net_sell_price) in
-  let new_buy_price = total_buy_cost /. float_of_int (pos.buy_qty + qty) in
+  let total_qty = pos.net_qty +. qty in
+  let total_buy_cost = (pos.buy_qty *. pos.net_buy_price) +. (qty *. price) in
+  let total_sell_cost = (pos.sell_qty *. pos.net_sell_price) in
+  let new_buy_price = total_buy_cost /. (pos.buy_qty +. qty) in
   let net_price, value, pnl, status, closed_at =
-    if total_qty = 0 then
+    if total_qty = 0.0 then
       (0.0, 0.0, -.(total_buy_cost +. total_sell_cost), Closed, Some now)
     else
-      let net_price = (total_sell_cost +. total_buy_cost) /. float_of_int total_qty in
+      let net_price = (total_sell_cost +. total_buy_cost) /. total_qty in
       (* keep on resetting the status to open because it may be followed by a Closed *)
-      (net_price, float_of_int total_qty *. net_price, pos.pnl, Open, pos.closed_at) (* t2 + 15 for the close *)
+      (net_price, total_qty *. net_price, pos.pnl, Open, pos.closed_at) (* t2 + 15 for the close *)
   in
-  let side = if total_qty > 0 then Buy else Sell in
+  let side = if total_qty > 0.0 then Buy else Sell in
   Printf.printf
     "Updating position for symbol %s at price %f:\n\
              - net_price: %.2f -> %.2f\n\
-             - net_qty: %.2d\n\
+             - net_qty: %.2f\n\
              - side: %s\n\
              - value: %.2f -> %.2f\n\
              - pnl: %.2f\n%!"
@@ -125,7 +125,7 @@ let update_position_from_buy_order (pos : pos) (order : Order.t) : pos =
     value
     pnl;
   { pos with
-    buy_qty = pos.buy_qty + qty;
+    buy_qty = pos.buy_qty +. qty;
     net_qty = total_qty;
     net_buy_price = new_buy_price;
     net_price = net_price;
@@ -143,22 +143,22 @@ let update_position_from_sell_order (pos : pos) (order : Order.t) : pos =
   let qty = order.filled_quantity in
   let price = order.filled_price in (* since this represents the avg price that the quantity was filled at*)
   let now = Ptime_clock.now () in
-  let total_qty = pos.net_qty - qty in
-  let total_sell_cost = (float_of_int pos.sell_qty *. pos.net_sell_price) +. (-.float_of_int qty *. price) in
-  let total_buy_cost = (float_of_int pos.buy_qty *. pos.net_buy_price) in
-  let new_sell_price =  total_sell_cost /. float_of_int (pos.sell_qty - qty) in
+  let total_qty = pos.net_qty -. qty in
+  let total_sell_cost = (pos.sell_qty *. pos.net_sell_price) +. (-.qty *. price) in
+  let total_buy_cost = (pos.buy_qty *. pos.net_buy_price) in
+  let new_sell_price =  total_sell_cost /. (pos.sell_qty -. qty) in
   let net_price, value, pnl, status, closed_at=
-    if total_qty = 0 then
+    if total_qty = 0.0 then
       (0.0, 0.0, -.(total_buy_cost +. total_sell_cost), Closed, Some now)
     else
-      let net_price = (total_sell_cost +. total_buy_cost) /. float_of_int total_qty in
-      (net_price, float_of_int total_qty *. net_price, pos.pnl, Open, pos.closed_at)
+      let net_price = (total_sell_cost +. total_buy_cost) /. total_qty in
+      (net_price, total_qty *. net_price, pos.pnl, Open, pos.closed_at)
   in
-  let side = if total_qty > 0 then Buy else Sell in
+  let side = if total_qty > 0.0 then Buy else Sell in
   Printf.printf
     "Updating position for symbol %s at price %f:\n\
              - net_price: %.2f -> %.2f\n\
-             - net_qty: %.2d\n\
+             - net_qty: %.2f\n\
              - side: %s\n\
              - value: %.2f -> %.2f\n\
              - pnl: %.2f\n%!"
@@ -172,7 +172,7 @@ let update_position_from_sell_order (pos : pos) (order : Order.t) : pos =
     value
     pnl;
   { pos with
-    sell_qty = pos.sell_qty - qty;
+    sell_qty = pos.sell_qty -. qty;
     net_qty = total_qty;
     net_sell_price = new_sell_price;
     net_price = net_price;
@@ -273,13 +273,13 @@ let update_positions_with_option_chain
       match find_option_data (extract_strike pos.symbol) option_chain with
       | Some data ->
         (* Printf.printf " found position symbol from option chain\n%!"; *)
-        let value = float_of_int pos.net_qty *. data.ltp in
+        let value = pos.net_qty *. data.ltp in
         Printf.printf "Updating position of symbol %s with option chain value from %f to %f and delta from %f to %f\n%!" pos.symbol pos.value value pos.delta data.delta;
         {
           pos with
           value;
           delta = data.delta *. 100.0;
-          total_delta = data.delta *. 100.0 *. (float_of_int (abs pos.net_qty));
+          total_delta = data.delta *. 100.0 *. (pos.net_qty);
           vega = data.vega;
           theta = data.theta;
           gamma = data.gamma;

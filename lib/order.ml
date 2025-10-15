@@ -31,6 +31,7 @@ type status_type =
   | Partial
   | Unknown
   | Created
+  | Live
 
 (* Conversion Functions *)
 
@@ -50,6 +51,7 @@ let status_to_string = function
   | Partial -> "Partially Executed"
   | Created -> "Created"
   | Unknown -> "Unknown"
+  | Live -> "Live"
 
 (* Order Entity *)
 
@@ -58,7 +60,7 @@ type t = {
   executed_at : Ptime.t option;
   tradingsymbol : string;
   exchange : string;
-  quantity : int;
+  quantity : float;
   price : float;
   trigger_price : float;
   side : side;
@@ -68,7 +70,7 @@ type t = {
   status : status_type option;
   strategy_name : string;
   lot : int;
-  filled_quantity : int;
+  filled_quantity : float;
   filled_price : float;
   order_id : string;
   broker_order_id : string;
@@ -95,8 +97,8 @@ let json_of_order (order : t) : Yojson.Safe.t =
       | Some Rejected -> "Rejected"
       | Some _ -> "Unknown"
       | None -> "Pending"));
-    ("quantity", `Int order.quantity);
-    ("filled_quantity", `Int order.filled_quantity);
+    ("quantity", `Float order.quantity);
+    ("filled_quantity", `Float order.filled_quantity);
     ("lot", `Int order.lot);
     ("price", `Float order.price);
     ("filled_price", `Float order.filled_price);
@@ -107,52 +109,6 @@ let json_of_order (order : t) : Yojson.Safe.t =
     ("order_id", `String  order.order_id);
     ("broker_order_id", `String  order.broker_order_id)
   ]
-
-let freeze_qty = 1800
-
-let split_quantity quantity =
-  let rec aux remaining acc =
-    if remaining <= 0 then List.rev acc
-    else
-      let this_qty = min freeze_qty remaining in
-      aux (remaining - this_qty) (this_qty :: acc)
-  in
-  aux quantity []
-
-let make_order
-  ~(tradingsymbol : string)
-  ~(quantity : int)
-  ~(lots : int)
-  ~(price : float)
-  ~(side : side)
-  ~(strategy_name : string)
-  : t list =
-  let chunks = split_quantity quantity in
-  List.map
-    (fun q ->
-      {
-        placed_at = Some (Ptime_clock.now ());
-        executed_at = None;
-        tradingsymbol;
-        exchange = "NSE";
-        quantity = q;
-        price;
-        trigger_price = 0.0;
-        side;
-        order_type = Market;
-        product = CNC;
-        validity = DAY;
-        status = Some Pending;
-        lot = lots;
-        strategy_name;
-        filled_quantity = 0;
-        filled_price = 0.0;
-        broker_order_id = "";
-        order_id = generate_order_id ();
-      }
-    )
-  chunks
-
 
 let ptime_of_string (s : string) : Ptime.t option =
   match Ptime.of_rfc3339 s with
@@ -218,8 +174,8 @@ let of_yojson (json : Yojson.Safe.t) : t =
     executed_at  = ptime_of_string (safe to_string "executed_at");
     tradingsymbol = safe to_string "tradingsymbol";
     exchange = safe to_string "exchange";
-    quantity = safe to_int "quantity";
-    filled_quantity = safe to_int "filled_quantity";
+    quantity = safe to_float "quantity";
+    filled_quantity = safe to_float "filled_quantity";
     lot = safe to_int "lot";
     price = safe to_float "price";
     filled_price = safe to_float "filled_price";
@@ -280,15 +236,15 @@ let of_yojson (json : Yojson.Safe.t) : t =
 (*   `Assoc (base_fields @ optional_fields) *)
 
 let total_cost order1 order2 =
-  (((float_of_int order1.filled_quantity) *. order1.filled_price) +. ((float_of_int order2.filled_quantity) *. order2.filled_price))
+  ((order1.filled_quantity *. order1.filled_price) +. (order2.filled_quantity *. order2.filled_price))
 
 let total_quantity order1 order2 =
-  ((float_of_int order1.filled_quantity) +. (float_of_int order2.filled_quantity))
+  (order1.filled_quantity) +. (order2.filled_quantity)
 
 let update_filled_price_and_quantity order1 order2 =
   let updated_quantity = total_quantity order1 order2 in
   let updated_filled_price = total_cost order1 order2 /. updated_quantity in
-  (updated_filled_price, int_of_float updated_quantity)
+  (updated_filled_price, updated_quantity)
 
 let apply_order_update order_update order =
   if order.broker_order_id = order_update.broker_order_id then

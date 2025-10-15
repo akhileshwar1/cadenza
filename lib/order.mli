@@ -27,6 +27,7 @@ type status_type =
   | Partial
   | Unknown
   | Created
+  | Live
 
   (* Conversion Functions *)
 
@@ -43,7 +44,7 @@ type t = {
   executed_at : Ptime.t option;
   tradingsymbol : string;
   exchange : string;
-  quantity : int;
+  quantity : float;
   price : float;
   trigger_price : float;
   side : side;
@@ -53,7 +54,7 @@ type t = {
   status : status_type option;
   strategy_name : string;
   lot : int;
-  filled_quantity : int;
+  filled_quantity : float;
   filled_price : float;
   order_id : string;
   broker_order_id : string;
@@ -61,16 +62,6 @@ type t = {
 
   (* Helper function to convert an Order.t to a Yojson.Safe.t *)
   val json_of_order : t -> Yojson.Safe.t
-
-  val make_order :
-  tradingsymbol:string ->
-  quantity:int ->
-  lots:int ->
-  price:float ->
-  side:side ->
-  strategy_name:string ->
-  t list
-
 
   val of_yojson : Yojson.Safe.t -> t
 
