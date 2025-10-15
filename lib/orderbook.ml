@@ -21,9 +21,10 @@ type t = {
   mutable bids : size_ Bids.t;
   mutable asks : size_ Asks.t;
   mutable last_update_id : int64;
+  symbol: string;
 }
 
-let create () = { bids = Bids.empty; asks = Asks.empty; last_update_id = 0L }
+let create () = { bids = Bids.empty; asks = Asks.empty; last_update_id = 0L; symbol = "btcusdt" }
 
 let clear ob =
   ob.bids <- Bids.empty;
@@ -112,6 +113,12 @@ let format_size q =
   let f = (Int64.to_float q) /. 1e8 in
   Printf.sprintf "%.8f" f
 
+let price_to_float p =
+  (Int64.to_float p) /. 1e8
+
+let size_to_float q =
+  (Int64.to_float q) /. 1e8
+
 let print_top ?(n=5) (ob : t) =
   Printf.printf "OrderBook last_update_id=%Ld\n" ob.last_update_id;
   Printf.printf " Asks (lowest):\n";
@@ -132,5 +139,27 @@ end
       ) ob.bids;
   flush stdout
 
+
+(* take first n elements of a list (preserve original order) *)
+let take_n (n : int) (lst : 'a list)  : 'a list =
+  if n <= 0 then [] else
+  let rec aux acc i = function
+    | [] -> List.rev acc
+    | _ when i <= 0 -> List.rev acc
+    | hd :: tl -> aux (hd :: acc) (i - 1) tl
+  in
+  aux [] n lst
+
+(** top_n: return (asks, bids) where each is a list of (price_str, size_str).
+    Asks are returned lowest-first (ascending price), bids highest-first (descending price).
+    Default n = 1. *)
+let top_n ?(n=1) (ob : t): (float * float) list * (float * float) list =
+  (* Map.bindings returns a list of (key, value) in the map's order
+     — Asks uses ascending price, Bids uses descending (PriceDesc). *)
+  let asks_lst = Asks.bindings ob.asks |> take_n n |> List.map (fun (p, q) -> (price_to_float p, size_to_float q)) in
+  let bids_lst = Bids.bindings ob.bids |> take_n n |> List.map (fun (p, q) -> (price_to_float p, size_to_float q)) in
+  (asks_lst, bids_lst)
+
+let symbol_of (ob : t) = ob.symbol
 let total_levels ob = (Bids.cardinal ob.bids) + (Asks.cardinal ob.asks)
 let last_update_id ob = ob.last_update_id

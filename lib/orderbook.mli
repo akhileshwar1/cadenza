@@ -21,3 +21,6 @@ val print_top : ?n:int -> t -> unit
 
 val total_levels : t -> int
 val last_update_id : t -> int64
+
+val top_n : ?n:int -> t -> (float * float) list * (float * float) list
+val symbol_of : t -> string 
