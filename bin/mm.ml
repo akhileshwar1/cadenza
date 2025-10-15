@@ -76,8 +76,6 @@ let () =
       Lwt.return_unit
     ) else
       Event_queue.pop queue >>= fun ev ->
-      (* optional: log receive timestamp *)
-      prerr_endline (Printf.sprintf "[main] processing event (recv_ts_us=%Ld)" ev.recv_ts_us);
       handle_event ev >>= fun () ->
       processor_loop ()
   in

@@ -11,5 +11,5 @@ type msg_type =
 type event = {
   typ : msg_type;
   payload : Yojson.Safe.t;
-  recv_ts_us : int64;
+  recv_at : Ptime.t;
 }
