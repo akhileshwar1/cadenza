@@ -1,64 +1,64 @@
-open Bb_strategy
-let ( let* ) = Lwt_result.bind
-
-module Q = struct
-  open Caqti_request.Infix
-
-  (* let candle = *)
-  (*   let intro timestamp open_price high_price low_price close_price upper_band lower_band sma = *)
-  (*     { timestamp; open_price; high_price; low_price; close_price; upper_band; lower_band; sma } *)
-  (*   in *)
-  (*   (* let proj f = Caqti_type.Std.proj f in *) *)
-  (*   Caqti_type.Std.( *)
-  (*     product intro *)
-  (*     @@ proj string (fun x -> x.timestamp) *)
-  (*     @@ proj float (fun x -> x.open_price) *)
-  (*     @@ proj float (fun x -> x.high_price) *)
-  (*     @@ proj float (fun x -> x.low_price) *)
-  (*     @@ proj float (fun x -> x.close_price) *)
-  (*     @@ proj float (fun x -> x.upper_band) *)
-  (*     @@ proj float (fun x -> x.lower_band) *)
-  (*     @@ proj float (fun x -> x.sma) *)
-  (*     @@ proj_end) *)
-
-  let candle_insert_type =
-    let open Caqti_type in
-    t2 ptime (
-      t2 float (
-        t2 float (
-          t2 float (
-            t2 float (
-              t2 float (
-                t2 float float))))))
-
-  let insert =
-    Caqti_type.(candle_insert_type ->. unit)
-      {|
-      INSERT INTO candles (
-        timestamp, symbol, open_price, high_price, low_price,
-        close_price, upper_band, lower_band, sma
-      )
-      VALUES (?, 'NIFTY50', ?, ?, ?, ?, ?, ?, ?)
-      |}
-
-  let count =
-    Caqti_type.(unit ->! int)
-      "SELECT COUNT(*) FROM candles"
-end
-
-let to_db_tuple (c : candle) =
-  ( c.timestamp,
-    (c.open_price,
-      (c.high_price,
-        (c.low_price,
-          (c.close_price,
-            (c.upper_band,
-              (c.lower_band, c.sma)))))))
-
-let insert (module Conn : Caqti_lwt.CONNECTION) (candle : candle) =
-  (* Printf.printf "in q insert\n%!"; *)
-  let* () = Conn.exec Q.insert (to_db_tuple candle) in
-  Conn.commit ()
-
-let count (module Conn : Caqti_lwt.CONNECTION) =
-  Conn.find Q.count ()
+(* open Bb_strategy *)
+(* let ( let* ) = Lwt_result.bind *)
+(**)
+(* module Q = struct *)
+(*   open Caqti_request.Infix *)
+(**)
+(*   (* let candle = *) *)
+(*   (*   let intro timestamp open_price high_price low_price close_price upper_band lower_band sma = *) *)
+(*   (*     { timestamp; open_price; high_price; low_price; close_price; upper_band; lower_band; sma } *) *)
+(*   (*   in *) *)
+(*   (*   (* let proj f = Caqti_type.Std.proj f in *) *) *)
+(*   (*   Caqti_type.Std.( *) *)
+(*   (*     product intro *) *)
+(*   (*     @@ proj string (fun x -> x.timestamp) *) *)
+(*   (*     @@ proj float (fun x -> x.open_price) *) *)
+(*   (*     @@ proj float (fun x -> x.high_price) *) *)
+(*   (*     @@ proj float (fun x -> x.low_price) *) *)
+(*   (*     @@ proj float (fun x -> x.close_price) *) *)
+(*   (*     @@ proj float (fun x -> x.upper_band) *) *)
+(*   (*     @@ proj float (fun x -> x.lower_band) *) *)
+(*   (*     @@ proj float (fun x -> x.sma) *) *)
+(*   (*     @@ proj_end) *) *)
+(**)
+(*   let candle_insert_type = *)
+(*     let open Caqti_type in *)
+(*     t2 ptime ( *)
+(*       t2 float ( *)
+(*         t2 float ( *)
+(*           t2 float ( *)
+(*             t2 float ( *)
+(*               t2 float ( *)
+(*                 t2 float float)))))) *)
+(**)
+(*   let insert = *)
+(*     Caqti_type.(candle_insert_type ->. unit) *)
+(*       {| *)
+(*       INSERT INTO candles ( *)
+(*         timestamp, symbol, open_price, high_price, low_price, *)
+(*         close_price, upper_band, lower_band, sma *)
+(*       ) *)
+(*       VALUES (?, 'NIFTY50', ?, ?, ?, ?, ?, ?, ?) *)
+(*       |} *)
+(**)
+(*   let count = *)
+(*     Caqti_type.(unit ->! int) *)
+(*       "SELECT COUNT(*) FROM candles" *)
+(* end *)
+(**)
+(* let to_db_tuple (c : candle) = *)
+(*   ( c.timestamp, *)
+(*     (c.open_price, *)
+(*       (c.high_price, *)
+(*         (c.low_price, *)
+(*           (c.close_price, *)
+(*             (c.upper_band, *)
+(*               (c.lower_band, c.sma))))))) *)
+(**)
+(* let insert (module Conn : Caqti_lwt.CONNECTION) (candle : candle) = *)
+(*   (* Printf.printf "in q insert\n%!"; *) *)
+(*   let* () = Conn.exec Q.insert (to_db_tuple candle) in *)
+(*   Conn.commit () *)
+(**)
+(* let count (module Conn : Caqti_lwt.CONNECTION) = *)
+(*   Conn.find Q.count () *)
