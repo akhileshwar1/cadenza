@@ -1,19 +1,31 @@
 (* bin/main.ml
-   Small demo runner:
-   - starts a ring reader (Ring_producer) that pushes events into an Event_queue
-   - runs a processor loop that pops events, updates a local Orderbook, and prints top-5
+   Runner:
+   - starts ring & oms producers that push into Event_queue
+   - starts the Processor with a handler built by Processor_handler.make_handler
+   - provides a simple Executor_rpc module that calls OMS REST APIs (place & cancel)
 *)
 
 open Lwt.Infix
+
+(* Open your project top-level modules *)
 open Cadenza
 
-let usage_and_exit () =
-  Printf.eprintf "Usage: main <RING_PATH>\n";
-  exit 2
+(* HTTP client *)
+module Http = Cohttp_lwt_unix
+
+(* Executor that calls the OMS REST endpoints.*)
+module Executor_rpc : Processor_handler.EXECUTOR = Cadenza.Executor
 
 let () =
-  if Array.length Sys.argv < 2 then usage_and_exit ();
-  let ring_path = Sys.argv.(1) in
+  let ring_path =  match Sys.getenv_opt "RING_URL" with
+    | Some v -> v
+    | None -> "/dev/shm/aether.ring"
+  in
+
+  let oms_ws_url = match Sys.getenv_opt "OMS_WS_URL" with
+    | Some v -> v
+    | None -> "ws://localhost:8081/"
+  in
 
   (* Create shared queue and stop flag *)
   let queue = Event_queue.create () in
@@ -25,59 +37,36 @@ let () =
       Ring_producer.start ~queue ~ring_path ~stop_ref
     );
 
-  (* Create local orderbook used by the handler *)
+  (* Start oms producer in background *)
+  Lwt.async (fun () ->
+      prerr_endline ("[main] starting oms producer, ws_url=" ^ oms_ws_url);
+      let login_msg = "" in
+      let heartbeat_msg = "" in
+      Cadenza.Oms_producer.start ~queue ~ws_url:oms_ws_url ~login_msg ~heartbeat_msg
+    );
+
+  (* Create local orderbook used by the handler & reconciliation *)
   let ob = Orderbook.create () in
 
-  (* Handler invoked for each dequeued event *)
-  let handle_event (ev : Event_types.event) : unit Lwt.t =
-    Lwt.catch
-      (fun () ->
-         match ev.typ with
-         | Event_types.SNAPSHOT ->
-             (* Snapshot: replace entire book *)
-             (try
-                Orderbook.set_from_snapshot ob ev.payload;
-                prerr_endline (Printf.sprintf "[main] applied SNAPSHOT -> lastUpdateId=%Ld levels=%d"
-                                (Orderbook.last_update_id ob) (Orderbook.total_levels ob))
-              with ex ->
-                prerr_endline ("[main] error applying snapshot: " ^ Printexc.to_string ex));
-             Orderbook.print_top ~n:5 ob;
-             Lwt.return_unit
-         | Event_types.DEPTH_UPDATE ->
-             (* Depth update: apply incremental update *)
-             (try
-                let ok = Orderbook.apply_event ob ev.payload in
-                if not ok then
-                  prerr_endline "[main] gap detected while applying depth update -> consumer should resync";
-                (* print whether applied and print top *)
-                prerr_endline (Printf.sprintf "[main] depth update u applied -> book.last_update_id=%Ld" (Orderbook.last_update_id ob));
-              with ex ->
-                prerr_endline ("[main] error applying depth update: " ^ Printexc.to_string ex));
-             Orderbook.print_top ~n:5 ob;
-             Lwt.return_unit
-         | Event_types.TICK -> 
-             prerr_endline ("[main] received tick message type: ");
-             Lwt.return_unit
-         | Event_types.OMS_UPDATE -> 
-             prerr_endline ("[main] received oms update message type: ");
-             Lwt.return_unit
-         | Event_types.CUSTOM n ->
-             prerr_endline ("[main] received CUSTOM message type: " ^ string_of_int n);
-             Lwt.return_unit)
-      (fun ex ->
-         prerr_endline ("[main] handler exception: " ^ Printexc.to_string ex);
-         Lwt.return_unit)
-  in
+  (* Create order tracker *)
+  let tracker = Order_tracker.create () in
 
-  (* Processor loop: pop events and call handler *)
-  let rec processor_loop () =
-    if !stop_ref then (
-      prerr_endline "[main] stop_ref set, processor exiting";
-      Lwt.return_unit
-    ) else
-      Event_queue.pop queue >>= fun ev ->
-      handle_event ev >>= fun () ->
-      processor_loop ()
+  (* Proposal generator and reconcile configuration defaults (tweak as needed) *)
+  let pg_cfg = Proposal_generator.default_config in
+  let rec_cfg : Reconciler.reconcile_cfg = {
+    Reconciler.refresh_tolerance_pct = 0.005;  (* 0.5% default tolerance *)
+    order_refresh_time = 5.0;
+  } in
+
+  (* Build the handler using Processor_handler.make_handler *)
+  let module Exec = Executor_rpc in
+  let handler =
+    Processor_handler.make_handler
+      ~pg_cfg
+      ~rec_cfg
+      ~orderbook:ob
+      ~tracker
+      ~executor:(module Exec : Processor_handler.EXECUTOR)
   in
 
   (* Install SIGINT to stop everything cleanly *)
@@ -89,6 +78,20 @@ let () =
     Sys.(set_signal sigint (Signal_handle signal_handler))
   in
 
-  (* Run processor loop forever (until stop_ref) *)
-  prerr_endline "[main] entering processor loop. Ctrl+C to exit.";
-  Lwt_main.run (processor_loop ())
+  prerr_endline "[main] starting processor via Processor.start. Ctrl+C to exit.";
+
+  (* init_state placeholder for Strategy.state (handler ignores state currently) *)
+  let init_state = Obj.magic () in
+
+  (* Start processor (runs in background). Processor.start returns a promise which resolves when stop_ref becomes true. *)
+  let processor_promise =
+    Processor.start ~queue ~init_state ~handler ~stop_ref ()
+  in
+
+  (* Run until processor_promise resolves *)
+  Lwt_main.run (
+    processor_promise >>= fun _final_state ->
+    prerr_endline "[main] processor finished, exiting.";
+    Lwt.return_unit
+  )
+
