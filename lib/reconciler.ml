@@ -90,8 +90,8 @@ let reconcile_once
       | (ps:Proposal_generator.price_size)::rest ->
         let order_template =
           {
-            Order.placed_at = None;
-            executed_at = None;
+            Order.placed_at = Some (Ptime_clock.now ());
+            executed_at = Some (Ptime_clock.now ());
             tradingsymbol = Orderbook.symbol_of orderbook;
             exchange = "BINANCE";
             quantity = ps.size;

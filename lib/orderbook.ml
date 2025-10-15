@@ -24,7 +24,7 @@ type t = {
   symbol: string;
 }
 
-let create () = { bids = Bids.empty; asks = Asks.empty; last_update_id = 0L; symbol = "btcusdt" }
+let create () = { bids = Bids.empty; asks = Asks.empty; last_update_id = 0L; symbol = "ZECUSDT" }
 
 let clear ob =
   ob.bids <- Bids.empty;

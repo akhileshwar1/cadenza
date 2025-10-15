@@ -10,17 +10,17 @@ open Cohttp_lwt_unix
 let oms_base =
   match Sys.getenv_opt "OMS_BASE_URL" with
   | Some v -> v
-  | None -> "http://localhost:9000"
+  | None -> "http://localhost:3000"
 
 let oms_place_path=
   match Sys.getenv_opt "OMS_PLACE_PATH" with
   | Some v -> v
-  | None -> "http://localhost:9000"
+  | None -> "/order/place"
 
 let oms_cancel_path=
   match Sys.getenv_opt "OMS_CANCEL_PATH" with
   | Some v -> v
-  | None -> "http://localhost:9000"
+  | None -> "/order/cancel"
 
 (* Helpers: convert order to JSON using the helper you provided in order.ml *)
 let json_of_order_for_oms (order : Order.t) : Yojson.Safe.t =
@@ -54,7 +54,7 @@ let json_of_order_for_oms (order : Order.t) : Yojson.Safe.t =
 
 (* Place order by POSTing to OMS. Returns the updated order as returned by OMS (parsed into Order.t if possible). *)
 let place_order ~(order : Order.t) : Order.t Lwt.t =
-  let uri = Uri.of_string (Filename.concat oms_base oms_place_path) in
+  let uri = Uri.of_string (oms_base ^ oms_place_path) in
   let json = json_of_order_for_oms order in
   let body = Yojson.Safe.to_string json |> Cohttp_lwt.Body.of_string in
   let headers =
@@ -80,7 +80,7 @@ let place_order ~(order : Order.t) : Order.t Lwt.t =
          Lwt.fail_with (Printf.sprintf "OMS.place_order HTTP %d: %s" code body_str)
     )
     (fun ex ->
-       Lwt_io.printf "[executor] place_order error: %s\n%!" (Printexc.to_string ex)
+       Lwt_io.printf "[executor] place_order error: %s %s\n%!" (oms_base ^ oms_place_path) (Printexc.to_string ex)
        >>= fun () ->
        Lwt.fail ex
     )
