@@ -8,8 +8,8 @@ end
 
 (* Executor module type used by reconciler *)
 module type EXECUTOR_SIG = sig
-  val place_order  : order:Order.t -> Order.t Lwt.t
-  val cancel_order : order:Order.t -> Order.t Lwt.t
+  val place_order  : order:Order.t -> unit Lwt.t
+  val cancel_order : order:Order.t -> unit Lwt.t
 end
 
 type reconcile_cfg = {

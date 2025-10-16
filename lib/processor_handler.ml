@@ -10,8 +10,8 @@ module Order = Order
 
 (* Executor signature: place/cancel return Order.t Lwt.t *)
 module type EXECUTOR = sig
-  val place_order  : order:Order.t -> Order.t Lwt.t
-  val cancel_order : order:Order.t -> Order.t Lwt.t
+  val place_order  : order:Order.t -> unit Lwt.t
+  val cancel_order : order:Order.t -> unit Lwt.t
 end
 
 (* Helper: reconcile safely (wrap call so handler stays small) *)

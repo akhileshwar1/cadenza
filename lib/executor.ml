@@ -53,7 +53,7 @@ let json_of_order_for_oms (order : Order.t) : Yojson.Safe.t =
   ]
 
 (* Place order by POSTing to OMS. Returns the updated order as returned by OMS (parsed into Order.t if possible). *)
-let place_order ~(order : Order.t) : Order.t Lwt.t =
+let place_order ~(order : Order.t) : unit Lwt.t =
   let uri = Uri.of_string (oms_base ^ oms_place_path) in
   let json = json_of_order_for_oms order in
   let body = Yojson.Safe.to_string json |> Cohttp_lwt.Body.of_string in
@@ -67,15 +67,7 @@ let place_order ~(order : Order.t) : Order.t Lwt.t =
        let code = resp |> Response.status |> Cohttp.Code.code_of_status in
        Cohttp_lwt.Body.to_string body_stream >>= fun body_str ->
        if code >= 200 && code < 300 then
-         (* parse response body; expect OMS returns updated order JSON *)
-         (try
-            let j = Yojson.Safe.from_string body_str in
-            let order' = Order.of_yojson j in
-            Lwt.return order'
-          with _ ->
-            (* If parsing fails, return original order but with broker_order_id if OMS returns something simple *)
-            Lwt_io.printf "[executor] place_order: parse failed, returning original order. Resp: %s\n%!" body_str
-            >>= fun () -> Lwt.return order)
+         Lwt.return_unit 
        else
          Lwt.fail_with (Printf.sprintf "OMS.place_order HTTP %d: %s" code body_str)
     )
@@ -85,7 +77,7 @@ let place_order ~(order : Order.t) : Order.t Lwt.t =
        Lwt.fail ex
     )
 
-let cancel_order ~(order : Order.t) : Order.t Lwt.t =
+let cancel_order ~(order : Order.t) : unit Lwt.t =
   let uri = Uri.of_string (Filename.concat oms_base oms_cancel_path) in
   let json = json_of_order_for_oms order in
   let body = Yojson.Safe.to_string json |> Cohttp_lwt.Body.of_string in
@@ -98,13 +90,7 @@ let cancel_order ~(order : Order.t) : Order.t Lwt.t =
        let code = resp |> Response.status |> Cohttp.Code.code_of_status in
        Cohttp_lwt.Body.to_string body_stream >>= fun body_str ->
        if code >= 200 && code < 300 then
-         (try
-            let j = Yojson.Safe.from_string body_str in
-            let updated = Order.of_yojson j in
-            Lwt.return updated
-          with ex ->
-            Lwt_io.printf "[executor] cancel_order: failed to parse response: %s\n%!" (Printexc.to_string ex)
-            >>= fun () -> Lwt.return { order with status = Some Order.Cancelled })
+         Lwt.return_unit 
        else
          Lwt.fail_with (Printf.sprintf "OMS.cancel_order HTTP %d: %s" code body_str)
     )

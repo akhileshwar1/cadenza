@@ -16,7 +16,7 @@ type proposal = {
   sells : price_size list;
 }
 
-let default_config = { spread_pct = 0.001; order_amount = 1.0; levels = 1 }
+let default_config = { spread_pct = 0.001; order_amount = 1.003; levels = 1 }
 
 (* get mid price from orderbook; try get_mid_price, otherwise compute from top 1. *)
 let get_mid_price_safe (ob : Orderbook.t) : float option =
