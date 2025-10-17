@@ -8,7 +8,7 @@ end
 
 (* Executor module type used by reconciler *)
 module type EXECUTOR_SIG = sig
-  val place_order  : order:Order.t -> unit Lwt.t
+  val place_order  : order:Order.t -> Yojson.Safe.t Lwt.t
   val cancel_order : order:Order.t -> unit Lwt.t
 end
 
@@ -77,7 +77,7 @@ let reconcile_once
     (* cancel all active if we are going to replace *)
     let cancels =
       if to_create_buys <> [] || to_create_sells <> [] then
-        active |> List.map (fun (tr:Order_tracker.tracked) -> tr.order)   (* map to Order.t items for executor cancel *)
+        active |> List.map (fun (tr:Order_tracker.tracked) -> { tr.order with broker_order_id = Option.get tr.broker_id })   (* map to Order.t items for executor cancel *)
       else
         []
     in
@@ -87,7 +87,8 @@ let reconcile_once
     (* execute cancels sequentially *)
     let rec do_cancels = function
       | [] -> Lwt.return_unit
-      | order::rest ->
+      | (order:Order.t)::rest ->
+        let _ = Order_tracker.register_new tracker ~order_id:order.order_id ~order in
         Ex.cancel_order ~order >>= fun _updated_order ->
         (* you might use tracker to mark cancellation; ignoring return for now *)
         Lwt.pause () >>= fun () ->
@@ -117,9 +118,14 @@ let reconcile_once
             status = Some Order.Pending;
             filled_quantity = 0.0;
             filled_price = 0.0;
-            order_id = "";
+            order_id = Order.generate_order_id ();
           } in
-        Ex.place_order ~order:order_template >>= fun _placed_order ->
+        let _ = Order_tracker.register_new tracker ~order_id:order_template.order_id ~order:order_template in
+        Ex.place_order ~order:order_template >>= fun json ->
+        let open Yojson.Safe.Util in
+        let broker_id = json |> member "broker_order_id" |> to_string in
+        Order_tracker.update_with_broker_ack tracker ~order_id:order_template.order_id ~broker_id
+        >>= fun _ ->
         Lwt.pause () >>= fun () ->
         do_places_for_side side rest
     in

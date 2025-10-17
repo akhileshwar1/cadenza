@@ -53,7 +53,7 @@ let json_of_order_for_oms (order : Order.t) : Yojson.Safe.t =
   ]
 
 (* Place order by POSTing to OMS. Returns the updated order as returned by OMS (parsed into Order.t if possible). *)
-let place_order ~(order : Order.t) : unit Lwt.t =
+let place_order ~(order : Order.t) : Yojson.Safe.t Lwt.t =
   let uri = Uri.of_string (oms_base ^ oms_place_path) in
   let json = json_of_order_for_oms order in
   let body = Yojson.Safe.to_string json |> Cohttp_lwt.Body.of_string in
@@ -67,7 +67,8 @@ let place_order ~(order : Order.t) : unit Lwt.t =
        let code = resp |> Response.status |> Cohttp.Code.code_of_status in
        Cohttp_lwt.Body.to_string body_stream >>= fun body_str ->
        if code >= 200 && code < 300 then
-         Lwt.return_unit 
+         let json = Yojson.Safe.from_string body_str in
+         Lwt.return json
        else
          Lwt.fail_with (Printf.sprintf "OMS.place_order HTTP %d: %s" code body_str)
     )
@@ -78,7 +79,7 @@ let place_order ~(order : Order.t) : unit Lwt.t =
     )
 
 let cancel_order ~(order : Order.t) : unit Lwt.t =
-  let uri = Uri.of_string (Filename.concat oms_base oms_cancel_path) in
+  let uri = Uri.of_string (oms_base ^ oms_cancel_path) in
   let json = json_of_order_for_oms order in
   let body = Yojson.Safe.to_string json |> Cohttp_lwt.Body.of_string in
   let headers = Header.init () |> fun h -> Header.add h "Content-Type" "application/json" in
@@ -95,5 +96,5 @@ let cancel_order ~(order : Order.t) : unit Lwt.t =
          Lwt.fail_with (Printf.sprintf "OMS.cancel_order HTTP %d: %s" code body_str)
     )
     (fun ex ->
-       Lwt_io.printf "[executor] cancel_order error: %s\n%!" (Printexc.to_string ex)
+       Lwt_io.printf "[executor] cancel_order error: %s %s\n%!" (oms_base ^ oms_cancel_path) (Printexc.to_string ex)
        >>= fun () -> Lwt.fail ex)
