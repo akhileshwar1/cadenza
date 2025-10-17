@@ -49,18 +49,28 @@ let reconcile_once
     (* decide creates: if no active buys, create buys; similarly for sells *)
     let to_create_buys =
       match head_opt active_buys, head_opt proposal.buys with
-      | None, _ -> proposal.buys
+      | None, _ -> 
+          (Printf.printf "NO ACTIVE BUYS\n%!";
+          proposal.buys)
       | Some (top_active:Order_tracker.tracked), Some (top_proposal:Proposal_generator.price_size) ->
         if price_differs top_active.order.price top_proposal.price rec_cfg.refresh_tolerance_pct
-        then proposal.buys else []
+        then
+          (Printf.printf "REFRESH PCT BUY\n%!";
+          proposal.buys)
+        else []
       | _, None -> []
     in
     let to_create_sells =
       match head_opt active_sells, head_opt proposal.sells with
-      | None, _ -> proposal.sells
+      | None, _ -> 
+          (Printf.printf "NO ACTIVE SELLS\n%!";
+          proposal.sells)
       | Some (top_active:Order_tracker.tracked), Some (top_proposal:Proposal_generator.price_size) ->
         if price_differs top_active.order.price top_proposal.price rec_cfg.refresh_tolerance_pct
-        then proposal.sells else []
+        then
+          (Printf.printf "REFRESH PCT SELL\n%!";
+          proposal.sells)
+        else []
       | _, None -> []
     in
 
