@@ -20,28 +20,16 @@ let start ~queue ~ws_url ~login_msg ~heartbeat_msg : unit Lwt.t =
     | exception Yojson.Json_error _ ->
       Lwt_io.eprintf "[oms_producer] invalid JSON from OMS: %s\n" msg
     | json ->
-      let open Yojson.Safe.Util in
-      let interested =
-        (* Heuristics to detect an order/update/execution report message from OMS/broker *)
+        let open Yojson.Safe.Util in
+        let interested =
+          (* Heuristics to detect an order/update/execution report message from OMS/broker *)
         (try
-           match json |> member "e" |> to_string with
-           | "executionReport" -> true
-           | _ -> false
-         with _ -> false)
-        ||
-        (try
-           (* some providers nest an "order" object *)
-           match json |> member "order" with
+          (* some providers nest an "order" object *)
+          match json |> member "tradingsymbol" with
            | `Null -> false
            | _ -> true
-         with _ -> false)
-        ||
-        (try
-           match json |> member "type" |> to_string with
-           | "order_update" | "order" -> true
-           | _ -> false
-         with _ -> false)
-      in
+          with _ -> false)
+        in
       if not interested then Lwt.return_unit
       else
         let ev = { typ = OMS_UPDATE; payload = json; recv_at = Ptime_clock.now () } in

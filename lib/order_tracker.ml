@@ -90,7 +90,7 @@ let find_by_broker_id tracker broker_id =
     let found =
       Hashtbl.fold (fun _ v acc ->
         match v.broker_id with
-        | Some b when b = broker_id -> Some v
+        | Some b when String.equal b broker_id -> Some v
         | _ -> acc
       ) tracker.tbl None
     in
