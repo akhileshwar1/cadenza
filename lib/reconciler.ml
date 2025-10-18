@@ -1,5 +1,6 @@
 (* lib/reconciler.ml *)
 open Lwt.Infix
+open Event_types
 
 (* Small helper types from your design (adapt as needed) *)
 module PriceSize = struct
@@ -37,6 +38,7 @@ let reconcile_once
     ~(orderbook : Orderbook.t)
     ~(tracker : Order_tracker.t)
     ~(executor : (module EXECUTOR_SIG))
+    ~(refresh_now : bool)
   : unit Lwt.t =
   match Proposal_generator.generate ~cfg:pg_cfg ~orderbook with
   | None -> Lwt.return_unit
@@ -53,9 +55,11 @@ let reconcile_once
           (Printf.printf "NO ACTIVE BUYS\n%!";
           proposal.buys)
       | Some (top_active:Order_tracker.tracked), Some (top_proposal:Proposal_generator.price_size) ->
-        if price_differs top_active.order.price top_proposal.price rec_cfg.refresh_tolerance_pct
-        then
-          (Printf.printf "REFRESH PCT BUY\n%!";
+        if refresh_now then
+        (Printf.printf "REFRESH PCT BUY\n%!";
+          proposal.buys)
+        else if price_differs top_active.order.price top_proposal.price rec_cfg.refresh_tolerance_pct then
+          (Printf.printf "TOLERANCE PCT BUY\n%!";
           proposal.buys)
         else []
       | _, None -> []
@@ -66,9 +70,11 @@ let reconcile_once
           (Printf.printf "NO ACTIVE SELLS\n%!";
           proposal.sells)
       | Some (top_active:Order_tracker.tracked), Some (top_proposal:Proposal_generator.price_size) ->
-        if price_differs top_active.order.price top_proposal.price rec_cfg.refresh_tolerance_pct
-        then
-          (Printf.printf "REFRESH PCT SELL\n%!";
+        if refresh_now then
+        (Printf.printf "REFRESH PCT SELL\n%!";
+          proposal.sells)
+        else if price_differs top_active.order.price top_proposal.price rec_cfg.refresh_tolerance_pct then
+          (Printf.printf "TOLERANCE PCT SELL\n%!";
           proposal.sells)
         else []
       | _, None -> []
@@ -77,7 +83,10 @@ let reconcile_once
     (* cancel all active if we are going to replace *)
     let cancels =
       if to_create_buys <> [] || to_create_sells <> [] then
-        active |> List.map (fun (tr:Order_tracker.tracked) -> { tr.order with broker_order_id = Option.get tr.broker_id })   (* map to Order.t items for executor cancel *)
+        (Printf.printf "before execption\n%!";
+        active |> List.map (fun (tr:Order_tracker.tracked) -> 
+          Printf.printf "tr's order_id is %s \n%!" tr.order_id; 
+          { tr.order with Order.broker_order_id = Option.get tr.broker_id })   (* map to Order.t items for executor cancel *))
       else
         []
     in
@@ -124,6 +133,8 @@ let reconcile_once
         Ex.place_order ~order:order_template >>= fun json ->
         let open Yojson.Safe.Util in
         let broker_id = json |> member "broker_order_id" |> to_string in
+        Printf.printf "broker id is %s\n%!" broker_id;
+        Printf.printf "order id is %s\n%!" order_template.order_id;
         Order_tracker.update_with_broker_ack tracker ~order_id:order_template.order_id ~broker_id
         >>= fun _ ->
         Lwt.pause () >>= fun () ->
@@ -134,15 +145,13 @@ let reconcile_once
     do_places_for_side Order.Buy to_create_buys >>= fun () ->
     do_places_for_side Order.Sell to_create_sells
 
-(* You can wrap reconcile_once in a loop that runs every rec_cfg.order_refresh_time seconds *)
-let rec reconcile_loop
-    ~(pg_cfg : Proposal_generator.config)
-    ~(rec_cfg : reconcile_cfg)
-    ~(orderbook : Orderbook.t)
-    ~(tracker : Order_tracker.t)
-    ~(executor : (module EXECUTOR_SIG))
-  : unit Lwt.t =
-  let open Lwt.Infix in
-  let%lwt () = reconcile_once ~pg_cfg ~rec_cfg ~orderbook ~tracker ~executor in
+let rec reconcile_refresh_producer 
+    ~(rec_cfg: reconcile_cfg)
+    ~(queue : Event_queue.t) 
+    ~stop_ref : unit Lwt.t =
+  if !stop_ref then Lwt.return_unit
+  else
   Lwt_unix.sleep rec_cfg.order_refresh_time >>= fun () ->
-  reconcile_loop ~pg_cfg ~rec_cfg ~orderbook ~tracker ~executor
+  let ev = { typ = REFRESH; payload = `Assoc []; recv_at = Ptime_clock.now () } in
+  Event_queue.push queue ev >>= fun () ->
+    reconcile_refresh_producer ~rec_cfg ~queue ~stop_ref

@@ -45,6 +45,8 @@ let () =
       Cadenza.Oms_producer.start ~queue ~ws_url:oms_ws_url ~login_msg ~heartbeat_msg
     );
 
+     
+
   (* Create local orderbook used by the handler & reconciliation *)
   let ob = Orderbook.create () in
 
@@ -58,6 +60,11 @@ let () =
     order_refresh_time = 5.0;
   } in
 
+  (* Order refresh tick producer in the background *)
+  Lwt.async (fun () ->
+      prerr_endline ("[main] starting refresh tick producer");
+      Reconciler.reconcile_refresh_producer ~queue ~rec_cfg ~stop_ref);
+   
   (* Build the handler using Processor_handler.make_handler *)
   let module Exec = Executor_rpc in
   let handler =
@@ -79,6 +86,7 @@ let () =
   in
 
   prerr_endline "[main] starting processor via Processor.start. Ctrl+C to exit.";
+  Printexc.record_backtrace true;
 
   (* init_state placeholder for Strategy.state (handler ignores state currently) *)
   let init_state = Obj.magic () in
@@ -94,4 +102,3 @@ let () =
     prerr_endline "[main] processor finished, exiting.";
     Lwt.return_unit
   )
-

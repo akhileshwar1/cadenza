@@ -6,6 +6,7 @@ type msg_type =
   | SNAPSHOT
   | OMS_UPDATE
   | TICK
+  | REFRESH (* to send pending orders refresh signal *)
   | CUSTOM of int
 
 type event = {
