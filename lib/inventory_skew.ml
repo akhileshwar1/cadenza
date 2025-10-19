@@ -1,7 +1,6 @@
 (*
   inventory_skew.ml
 
-  Port of Hummingbot's inventory skew logic (the C/Python code you showed).
   Given current base/quote balances and a target base ratio + range, compute
   bid/ask adjustment multipliers.
 

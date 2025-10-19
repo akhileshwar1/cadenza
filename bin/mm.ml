@@ -57,7 +57,7 @@ let () =
   let pg_cfg = Proposal_generator.default_config in
   let rec_cfg : Reconciler.reconcile_cfg = {
     Reconciler.refresh_tolerance_pct = 0.005;  (* 0.5% default tolerance *)
-    order_refresh_time = 5.0;
+    order_refresh_time = 10.0;
   } in
 
   (* Order refresh tick producer in the background *)
@@ -67,6 +67,7 @@ let () =
    
   (* Build the handler using Processor_handler.make_handler *)
   let module Exec = Executor_rpc in
+  let inventory_state = Inventory_state.create ~base:0.0 ~quote:100.0 ~target:0.5 ~range:1.0 () in
   let handler =
     Processor_handler.make_handler
       ~pg_cfg
@@ -74,6 +75,7 @@ let () =
       ~orderbook:ob
       ~tracker
       ~executor:(module Exec : Processor_handler.EXECUTOR)
+      ~inventory_state
   in
 
   (* Install SIGINT to stop everything cleanly *)

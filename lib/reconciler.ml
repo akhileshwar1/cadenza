@@ -39,8 +39,9 @@ let reconcile_once
     ~(tracker : Order_tracker.t)
     ~(executor : (module EXECUTOR_SIG))
     ~(refresh_now : bool)
+    ~(inventory_state: Inventory_state.t)
   : unit Lwt.t =
-  match Proposal_generator.generate ~cfg:pg_cfg ~orderbook with
+  match Proposal_generator.generate_with_skew ~cfg:pg_cfg ~orderbook ~inventory_state with
   | None -> Lwt.return_unit
   | Some proposal ->
     (* get currently active tracked orders *)

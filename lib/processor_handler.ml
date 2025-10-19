@@ -15,11 +15,28 @@ module type EXECUTOR = sig
 end
 
 (* Helper: reconcile safely (wrap call so handler stays small) *)
-let run_reconcile ~pg_cfg ~rec_cfg ~orderbook ~tracker ~executor_module ~refresh_now =
+let run_reconcile ~pg_cfg ~rec_cfg ~orderbook ~tracker ~executor_module ~inventory_state ~refresh_now =
   (* Reconcile.reconcile_once returns unit Lwt.t *)
-  Reconciler.reconcile_once ~pg_cfg ~rec_cfg ~orderbook ~tracker ~executor:executor_module ~refresh_now
+  Reconciler.reconcile_once ~pg_cfg ~rec_cfg ~orderbook ~tracker ~executor:executor_module ~inventory_state ~refresh_now
 
-let track_order_update (tracker : Order_tracker.t) (ord : Order.t) : unit Lwt.t =
+let apply_fill_to_inventory ~inventory_state ~(ord : Order.t) =
+  (* ord.tradingsymbol e.g. "ZECUSDT" -> base="ZEC", quote="USDT" *)
+  let filled = ord.filled_quantity in
+  let px = ord.filled_price in
+  match ord.side with
+  | Order.Buy ->
+    (* You bought `filled` base at price px, so base increases, quote decreases *)
+    Inventory_state.read_balances inventory_state >>= fun (base_bal, quote_bal) ->
+    let base_bal' = base_bal +. filled in
+    let quote_bal' = quote_bal -. (filled *. px) in
+    Inventory_state.update_balances inventory_state ~base:base_bal' ~quote:quote_bal'
+  | Order.Sell ->
+    Inventory_state.read_balances inventory_state >>= fun (base_bal, quote_bal) ->
+    let base_bal' = base_bal -. filled in
+    let quote_bal' = quote_bal +. (filled *. px) in
+    Inventory_state.update_balances inventory_state ~base:base_bal' ~quote:quote_bal'
+
+let track_order_update (tracker : Order_tracker.t) (ord : Order.t) (inventory_state: Inventory_state.t) : unit Lwt.t =
   let open Order_tracker in
   let open Order in
 
@@ -40,11 +57,13 @@ let track_order_update (tracker : Order_tracker.t) (ord : Order.t) : unit Lwt.t 
     | Some Completed ->
       Printf.printf "Completing %s\n%!" order_id;
       mark_filled tracker ~order_id ~filled_qty:filled_qty_f >|= ignore
+      >>= fun () -> apply_fill_to_inventory ~inventory_state ~ord
     | Some Pending ->
       Printf.printf "Pending %s\n%!" order_id;
       (* treat pending as possible partial fill update *)
       if filled_qty_f > 0.0 then
         mark_filled tracker ~order_id ~filled_qty:filled_qty_f >|= ignore
+        >>= fun () -> apply_fill_to_inventory ~inventory_state ~ord
       else Lwt.return_unit
     | Some Cancelled ->
       Printf.printf "Cancelling %s\n%!" order_id;
@@ -87,6 +106,7 @@ let make_handler
     ~(orderbook : Orderbook.t)
     ~(tracker : Order_tracker.t)
     ~(executor : (module EXECUTOR))
+    ~(inventory_state:Inventory_state.t)
   =
   let module Ex = (val executor : EXECUTOR) in
 
@@ -105,7 +125,7 @@ let make_handler
            end;
            Orderbook.print_top ~n:5 orderbook;
            (* Try to generate proposal & reconcile *)
-           run_reconcile ~pg_cfg ~rec_cfg ~orderbook ~tracker ~executor_module:(module Ex) ~refresh_now:false
+           run_reconcile ~pg_cfg ~rec_cfg ~orderbook ~tracker ~executor_module:(module Ex) ~inventory_state ~refresh_now:false
            >>= fun () ->
            Lwt.return state
 
@@ -120,7 +140,7 @@ let make_handler
                prerr_endline ("[handler] error applying depth update: " ^ Printexc.to_string ex)
            end;
            Orderbook.print_top ~n:5 orderbook;
-           run_reconcile ~pg_cfg ~rec_cfg ~orderbook ~tracker ~executor_module:(module Ex) ~refresh_now:false
+           run_reconcile ~pg_cfg ~rec_cfg ~orderbook ~tracker ~executor_module:(module Ex) ~inventory_state ~refresh_now:false
            >>= fun () -> Lwt.return state
 
          | Event_types.OMS_UPDATE ->
@@ -136,7 +156,7 @@ let make_handler
                    Order.of_yojson ev.Event_types.payload
                in
                (* Track update *)
-               track_order_update tracker ord >>= fun () ->
+               track_order_update tracker ord inventory_state >>= fun () ->
                (* optionally, if the update indicates we should take action (rare) you can call executor here *)
                Lwt.return state
              with
@@ -151,7 +171,7 @@ let make_handler
          | Event_types.REFRESH ->
            prerr_endline "[handler] received REFRESH";
 
-           run_reconcile ~pg_cfg ~rec_cfg ~orderbook ~tracker ~executor_module:(module Ex) ~refresh_now:true
+           run_reconcile ~pg_cfg ~rec_cfg ~orderbook ~tracker ~executor_module:(module Ex) ~inventory_state ~refresh_now:true
            >>= fun () -> Lwt.return state
 
          | Event_types.TICK ->
