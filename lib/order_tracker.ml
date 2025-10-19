@@ -87,11 +87,22 @@ let find_by_order_id tracker order_id =
 
 let find_by_broker_id tracker broker_id =
   Lwt_mutex.with_lock tracker.mutex (fun () ->
+    let btrim = String.trim broker_id in
+    (* debug: print lookup *)
+    Printf.printf "[tracker] find_by_broker_id: looking for '%s'\n%!" btrim;
+
     let found =
-      Hashtbl.fold (fun _ v acc ->
+      Hashtbl.fold (fun _key v acc ->
         match v.broker_id with
-        | Some b when String.equal b broker_id -> Some v
-        | _ -> acc
+        | Some b ->
+          let b_stored = String.trim b in
+          (* debug each entry (comment out in hot path) *)
+          Printf.printf "[tracker] - entry order_id=%s broker_id='%s'\n%!" v.order_id b_stored;
+          if String.equal b_stored btrim then Some v else acc
+        | None ->
+          (* debug none entries lightly *)
+          Printf.printf "[tracker] - entry order_id=%s broker_id=(none)\n%!" v.order_id;
+          acc
       ) tracker.tbl None
     in
     Lwt.return found
