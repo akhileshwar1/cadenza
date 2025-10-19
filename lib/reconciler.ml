@@ -97,7 +97,6 @@ let reconcile_once
     let rec do_cancels = function
       | [] -> Lwt.return_unit
       | (order:Order.t)::rest ->
-        let _ = Order_tracker.register_new tracker ~order_id:order.order_id ~order in
         Ex.cancel_order ~order >>= fun _updated_order ->
         (* you might use tracker to mark cancellation; ignoring return for now *)
         Lwt.pause () >>= fun () ->
