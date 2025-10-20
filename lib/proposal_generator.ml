@@ -16,7 +16,38 @@ type proposal = {
   sells : price_size list;
 }
 
-let default_config = { spread_pct = 0.001; order_amount = 0.101; levels = 1 }
+let spread_pct =
+    match Sys.getenv_opt "SPREAD_PCT" with
+  | Some v -> v
+  | None -> "0.001"
+
+let order_amount =
+    match Sys.getenv_opt "ORDER_AMOUNT" with
+  | Some v -> v
+  | None -> "0.011"
+
+let levels =
+    match Sys.getenv_opt "LEVELS" with
+  | Some v -> v
+  | None -> "1"
+
+let step =
+    match Sys.getenv_opt "STEP_SIZE" with
+  | Some v -> v
+  | None -> "0.001"
+
+let min_size =
+    match Sys.getenv_opt "MIN_SIZE" with
+  | Some v -> v
+  | None -> "0.01"
+
+let min_notional =
+    match Sys.getenv_opt "MIN_NOTIONAL" with
+  | Some v -> v
+  | None -> "10.0"
+
+
+let default_config = { spread_pct = float_of_string spread_pct; order_amount = float_of_string order_amount; levels = int_of_string levels }
 
 (* get mid price from orderbook; try get_mid_price, otherwise compute from top 1. *)
 let get_mid_price_safe (ob : Orderbook.t) : float option =
@@ -82,9 +113,12 @@ let generate_with_skew ~cfg ~orderbook ~(inventory_state:Inventory_state.t) =
       ~target_base_ratio:inventory_state.target_base_ratio
       ~base_asset_range:(inventory_state.range_multiplier *. total_order_size)
     in
+    let step = float_of_string step in
+    let min_size = float_of_string min_size in
+    let min_notional = float_of_string min_notional in
     Printf.printf "ratios are %f %f \n%!" ratios.bid_ratio ratios.ask_ratio;
-    let buys' = List.map (fun ps -> { ps with size = (Quantize.safe_quantize_size ~size:(ps.size *. ratios.bid_ratio) ~step:0.001 ~min_size:0.001 ~round:`Down) }) proposal.buys in
-    let sells' = List.map (fun ps -> { ps with size = (Quantize.safe_quantize_size ~size:(ps.size *. ratios.ask_ratio) ~step:0.001 ~min_size:0.001 ~round:`Down) }) proposal.sells in
+    let buys' = List.map (fun ps -> { ps with size = (Quantize.safe_quantize_size ~size:(ps.size *. ratios.bid_ratio) ~step ~min_size ~round:`Down ~min_notional ~price:ps.price) }) proposal.buys in
+    let sells' = List.map (fun ps -> { ps with size = (Quantize.safe_quantize_size ~size:(ps.size *. ratios.ask_ratio) ~step ~min_size ~round:`Down ~min_notional ~price:ps.price) }) proposal.sells in
     let filtered_buys = List.filter (fun ps -> if ps.size <> 0.0 then true else false) buys' in
     let filtered_sells= List.filter (fun ps -> if ps.size <> 0.0 then true else false) sells' in
     Some { buys = filtered_buys; sells = filtered_sells}

@@ -24,7 +24,12 @@ type t = {
   symbol: string;
 }
 
-let create () = { bids = Bids.empty; asks = Asks.empty; last_update_id = 0L; symbol = "ZECUSDT" }
+let trading_pair=
+  match Sys.getenv_opt "TRADING_PAIR" with
+  | Some v -> v
+  | None -> "ZECUSDT"
+
+let create () = { bids = Bids.empty; asks = Asks.empty; last_update_id = 0L; symbol = trading_pair }
 
 let clear ob =
   ob.bids <- Bids.empty;

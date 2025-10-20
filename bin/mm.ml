@@ -55,19 +55,54 @@ let () =
 
   (* Proposal generator and reconcile configuration defaults (tweak as needed) *)
   let pg_cfg = Proposal_generator.default_config in
+
+  let refresh_time =
+    match Sys.getenv_opt "ORDER_REFRESH_TIME" with
+  | Some v -> v
+  | None -> "10.0" in
+
+  let tolerance_pct =
+    match Sys.getenv_opt "TOLERANCE_PCT" with
+  | Some v -> v
+  | None -> "0.005" in
+
   let rec_cfg : Reconciler.reconcile_cfg = {
-    Reconciler.refresh_tolerance_pct = 0.005;  (* 0.5% default tolerance *)
-    order_refresh_time = 10.0;
+    Reconciler.refresh_tolerance_pct = float_of_string tolerance_pct;  (* 0.5% default tolerance *)
+    order_refresh_time = float_of_string refresh_time;
   } in
 
   (* Order refresh tick producer in the background *)
   Lwt.async (fun () ->
       prerr_endline ("[main] starting refresh tick producer");
       Reconciler.reconcile_refresh_producer ~queue ~rec_cfg ~stop_ref);
-   
+
+   let base_bal =
+    match Sys.getenv_opt "BASE_BALANCE" with
+  | Some v -> v
+  | None -> "97.81" in
+
+  let quote_bal =
+    match Sys.getenv_opt "QUOTE_BALANCE" with
+  | Some v -> v
+  | None -> "0.1711" in
+
+  let target_base_ratio =
+    match Sys.getenv_opt "TARGET_BASE_RATIO" with
+  | Some v -> v
+  | None -> "0.1" in
+
+  let range_multiplier =
+    match Sys.getenv_opt "RANGE_MULTIPLIER" with
+  | Some v -> v
+  | None -> "1.0" in
+
   (* Build the handler using Processor_handler.make_handler *)
   let module Exec = Executor_rpc in
-  let inventory_state = Inventory_state.create ~base:0.0 ~quote:100.0 ~target:0.5 ~range:1.0 () in
+  let inventory_state = Inventory_state.create 
+  ~base:(float_of_string base_bal)
+  ~quote:(float_of_string quote_bal)
+  ~target:(float_of_string target_base_ratio)
+  ~range:(float_of_string range_multiplier) () in
   let handler =
     Processor_handler.make_handler
       ~pg_cfg
