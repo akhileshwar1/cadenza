@@ -13,8 +13,8 @@ type t = {
   not_full : unit Lwt_condition.t;
 }
 
-let default_capacity = 1024
-let default_policy = DropOldest
+let default_capacity = 1024 
+let default_policy = BlockProducer
 
 let create ?(capacity=default_capacity) ?(policy=default_policy) () =
   {
