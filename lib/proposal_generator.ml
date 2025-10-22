@@ -101,6 +101,7 @@ let generate_with_skew ~cfg ~orderbook ~(inventory_state:Inventory_state.t) =
       | None -> 0.0
       | Some mid -> mid
       in
+    Printf.printf "MID PRICE IS %f\n%!" price;
     let total_order_size =
       total_size_from_proposal
       ~buys:(List.map (fun ps -> (ps.price, ps.size)) proposal.buys)
@@ -116,9 +117,23 @@ let generate_with_skew ~cfg ~orderbook ~(inventory_state:Inventory_state.t) =
     let step = float_of_string step in
     let min_size = float_of_string min_size in
     let min_notional = float_of_string min_notional in
+    let inventory_opt = Some (inventory_state.base_balance, inventory_state.quote_balance) in
     Printf.printf "ratios are %f %f \n%!" ratios.bid_ratio ratios.ask_ratio;
-    let buys' = List.map (fun ps -> { ps with size = (Quantize.safe_quantize_size ~size:(ps.size *. ratios.bid_ratio) ~step ~min_size ~round:`Down ~min_notional ~price:ps.price) }) proposal.buys in
-    let sells' = List.map (fun ps -> { ps with size = (Quantize.safe_quantize_size ~size:(ps.size *. ratios.ask_ratio) ~step ~min_size ~round:`Down ~min_notional ~price:ps.price) }) proposal.sells in
-    let filtered_buys = List.filter (fun ps -> if ps.size <> 0.0 then true else false) buys' in
-    let filtered_sells= List.filter (fun ps -> if ps.size <> 0.0 then true else false) sells' in
+    let buys' = List.map (fun ps -> 
+      Printf.printf "Proposal BUY %f for %f \n%!" ps.size ps.price;
+      Printf.printf "Ratioed  BUY %f \n%!" (ps.size *. ratios.bid_ratio);
+      { ps with size = (Quantize.safe_quantize_size ~size:(ps.size *. ratios.bid_ratio) ~step ~min_size ~round:`Down ~min_notional ~price:ps.price ~side_opt: (Some Order.Buy) ~inventory_opt) }) proposal.buys in
+    let sells' = List.map (fun ps ->
+      Printf.printf "Proposal SELL %f for %f \n%!" ps.size ps.price;
+      Printf.printf "Ratioed  SELL %f \n%!" (ps.size *. ratios.ask_ratio);
+      { ps with size = (Quantize.safe_quantize_size ~size:(ps.size *. ratios.ask_ratio) ~step ~min_size ~round:`Down ~min_notional ~price:ps.price ~side_opt: (Some Order.Sell) ~inventory_opt) }) proposal.sells in
+    let filtered_buys = List.filter (fun ps -> 
+      Printf.printf "Quantized BUY %f for %f \n%!" ps.size ps.price;
+      if ps.size <> 0.0 then 
+        (Printf.printf "buying %f for %f\n%!" ps.size ps.price;
+        true) else false) buys' in
+    let filtered_sells= List.filter (fun ps -> 
+      Printf.printf "Quantized SELL %f for %f \n%!" ps.size ps.price;
+      if ps.size <> 0.0 then (Printf.printf "selling %f for %f\n%!" ps.size ps.price;
+        true) else false) sells' in
     Some { buys = filtered_buys; sells = filtered_sells}
