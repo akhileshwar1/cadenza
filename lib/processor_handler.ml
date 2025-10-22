@@ -29,11 +29,13 @@ let apply_fill_to_inventory ~inventory_state ~(ord : Order.t) =
     Inventory_state.read_balances inventory_state >>= fun (base_bal, quote_bal) ->
     let base_bal' = base_bal +. filled in
     let quote_bal' = quote_bal -. (filled *. px) in
+    Printf.printf "Updated balances during buy for base %f and quote %f\n%!" base_bal' quote_bal';
     Inventory_state.update_balances inventory_state ~base:base_bal' ~quote:quote_bal'
   | Order.Sell ->
     Inventory_state.read_balances inventory_state >>= fun (base_bal, quote_bal) ->
     let base_bal' = base_bal -. filled in
     let quote_bal' = quote_bal +. (filled *. px) in
+    Printf.printf "Updated balances during sell for base %f and quote %f\n%!" base_bal' quote_bal';
     Inventory_state.update_balances inventory_state ~base:base_bal' ~quote:quote_bal'
 
 let track_order_update (tracker : Order_tracker.t) (ord : Order.t) (inventory_state: Inventory_state.t) : unit Lwt.t =
@@ -64,7 +66,7 @@ let track_order_update (tracker : Order_tracker.t) (ord : Order.t) (inventory_st
       if filled_qty_f > 0.0 then
         mark_filled tracker ~order_id ~filled_qty:filled_qty_f >|= ignore
         >>= fun () -> apply_fill_to_inventory ~inventory_state ~ord
-      else Lwt.return_unit
+    else Lwt.return_unit
     | Some Cancelled ->
       Printf.printf "Cancelling %s\n%!" order_id;
       mark_cancelled tracker ~order_id >|= ignore
