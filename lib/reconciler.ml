@@ -84,10 +84,9 @@ let reconcile_once
     (* cancel all active if we are going to replace *)
     let cancels =
       if to_create_buys <> [] || to_create_sells <> [] then
-        (Printf.printf "before execption\n%!";
         active |> List.map (fun (tr:Order_tracker.tracked) -> 
-          Printf.printf "tr's order_id is %s \n%!" tr.order_id; 
-          { tr.order with Order.broker_order_id = Option.get tr.broker_id })   (* map to Order.t items for executor cancel *))
+          (* Printf.printf "tr's order_id is %s \n%!" tr.order_id;  *)
+          { tr.order with Order.broker_order_id = Option.get tr.broker_id } (* map to Order.t items for executor cancel *))
       else
         []
     in

@@ -97,7 +97,7 @@ let find_by_broker_id tracker broker_id =
         | Some b ->
           let b_stored = String.trim b in
           (* debug each entry (comment out in hot path) *)
-          Printf.printf "[tracker] - entry order_id=%s broker_id='%s'\n%!" v.order_id b_stored;
+          (* Printf.printf "[tracker] - entry order_id=%s broker_id='%s'\n%!" v.order_id b_stored; *)
           if String.equal b_stored btrim then Some v else acc
         | None ->
           (* debug none entries lightly *)
