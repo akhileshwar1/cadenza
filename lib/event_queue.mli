@@ -1,11 +1,9 @@
 (* lib/event_queue.mli *)
 open Event_types
 
-type drop_policy = BlockProducer | DropOldest | DropNewest
-
 type t
 
-val create : ?capacity:int -> ?policy:drop_policy -> unit -> t
+val create : ?critical_capacity:int -> ?market_capacity:int -> unit -> t
 
 val push : t -> event -> unit Lwt.t
 (** Push an event. Behavior depends on policy:

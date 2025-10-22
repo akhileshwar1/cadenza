@@ -28,7 +28,10 @@ let () =
   in
 
   (* Create shared queue and stop flag *)
-  let queue = Event_queue.create () in
+  let queue = Event_queue.create
+    ~critical_capacity:100 (* Ensures space for OMS updates *)
+    ~market_capacity:1024  (* Standard capacity for depth updates *)
+    () in
   let stop_ref = ref false in
 
   (* Start ring producer in background *)
