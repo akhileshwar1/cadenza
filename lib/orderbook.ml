@@ -161,6 +161,7 @@ let take_n (n : int) (lst : 'a list)  : 'a list =
 let top_n ?(n=1) (ob : t): (float * float) list * (float * float) list =
   (* Map.bindings returns a list of (key, value) in the map's order
      — Asks uses ascending price, Bids uses descending (PriceDesc). *)
+  Printf.printf "book depth is %d\n%!" n;
   let asks_lst = Asks.bindings ob.asks |> take_n n |> List.map (fun (p, q) -> (price_to_float p, size_to_float q)) in
   let bids_lst = Bids.bindings ob.bids |> take_n n |> List.map (fun (p, q) -> (price_to_float p, size_to_float q)) in
   (asks_lst, bids_lst)

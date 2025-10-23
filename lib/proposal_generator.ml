@@ -46,14 +46,29 @@ let min_notional =
   | Some v -> v
   | None -> "10.0"
 
+let book_depth = 
+    match Sys.getenv_opt "BOOK_DEPTH" with
+    | Some v -> v
+    | None -> "10"
+
+let tick_size_precision = 
+    match Sys.getenv_opt "TICK_SIZE_PRECISION" with
+    | Some v -> v
+    | None -> "4" (* for 0.0001 precision *)
 
 let default_config = { spread_pct = float_of_string spread_pct; order_amount = float_of_string order_amount; levels = int_of_string levels }
+
+(* Rounds a float to a specified number of decimal places (precision).
+ * This is crucial for matching exchange tick size requirements. *)
+let round_to_precision f precision =
+  let p = 10.0 ** (float_of_int precision) in
+  (floor (f *. p +. 0.5)) /. p
 
 (* get mid price from orderbook; try get_mid_price, otherwise compute from top 1. *)
 let get_mid_price_safe (ob : Orderbook.t) : float option =
     begin
       try
-        let (bids, asks) = Orderbook.top_n ob ~n:1 in
+        let (bids, asks) = Orderbook.top_n ob ~n:(int_of_string book_depth) in
         match bids, asks with
         | (bp, _ ) :: _, (ap, _) :: _ -> Some ((bp +. ap) /. 2.0)
         | _ -> None
@@ -69,8 +84,10 @@ let generate ~cfg ~orderbook : proposal option =
     let create_level i =
       (* If future multiple levels are used: multiply spread per level *)
       let multiplier = float_of_int (i + 1) in
-      let buy_price = mid *. (1.0 -. (spread *. multiplier)) in
-      let sell_price = mid *. (1.0 +. (spread *. multiplier)) in
+      let raw_buy_price = mid *. (1.0 -. (spread *. multiplier)) in
+      let raw_sell_price = mid *. (1.0 +. (spread *. multiplier)) in
+      let buy_price = round_to_precision raw_buy_price (int_of_string tick_size_precision) in
+      let sell_price = round_to_precision raw_sell_price (int_of_string tick_size_precision) in
       ({ price = buy_price; size = cfg.order_amount },
        { price = sell_price; size = cfg.order_amount })
     in
